@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.cool-input {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: white; /* Keep white for input fields */
+  font-size: 16px;
+  outline: none;
+  transition: 0.3s ease-in-out;
+}
+
+/* Ensure dropdown text is visible */
+.cool-input select, .cool-input option {
+  color: black; /* Dropdown text should be black */
+  background: white; /* Dropdown background should be white */
+}
+
+.cool-input::placeholder {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.cool-input:focus {
+  border-color: #3b82f6;
+  background: rgba(255, 255, 255, 0.2);
+}
+  
+  .cool-button {
+    width: 100%;
+    padding: 12px;
+    background: linear-gradient(135deg, #3b82f6, #9333ea);
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
+    border-radius: 8px;
+    transition: 0.3s ease-in-out;
+    cursor: pointer;
+  }
+  
+  .cool-button:hover {
+    background: linear-gradient(135deg, #2563eb, #7e22ce);
+    transform: scale(1.05);
+  }
+  
+  .glass-container {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    padding: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+  
+  .shadow-3xl {
+    box-shadow: 0px 15px 30px rgba(0, 0, 0, 0.5);
+  }
+  
