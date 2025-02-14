@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { client } from "../sanityClient";
 import { useNavigate, useParams } from "react-router-dom";
-import { v4 as uuidv4 } from "uuid"; // For generating unique keys
+import { v4 as uuidv4 } from "uuid";
 
 const EditTeam = () => {
   const { id } = useParams();
