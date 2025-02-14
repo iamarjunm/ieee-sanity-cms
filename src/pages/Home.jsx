@@ -124,7 +124,9 @@ const Home = () => {
             <ul className="divide-y divide-gray-700">
               {teamMembers.length > 0 ? (
                 teamMembers.map((member) => (
-                  <li key={member._id} className="py-3 cursor-pointer hover:bg-gray-700 p-3 rounded">
+                  <li key={member._id} 
+                  className="py-3 cursor-pointer hover:bg-gray-700 p-3 rounded"
+                  onClick={() => navigate(`/edit-team/${member._id}`)}>
                     <h3 className="text-lg font-semibold">{member.name}</h3>
                     <p className="text-sm text-gray-400">
                       {member.position} |{" "}
