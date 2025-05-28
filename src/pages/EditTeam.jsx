@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { client } from "../sanityClient";
+import { client } from "../sanityClient"; // Assuming sanityClient is correctly configured
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 
@@ -28,7 +28,7 @@ const EditTeam = () => {
         const member = await client.fetch(
           `*[_type == "team" && _id == $id][0]{
             name,
-            photo{asset->{url}},
+            photo{asset->{url, _ref}}, // Fetch _ref as well for removal logic if needed
             committee,
             position,
             society,
@@ -52,6 +52,10 @@ const EditTeam = () => {
 
         setFormData({
           ...member,
+          committee: member.committee || "", // Ensure it's an empty string if null/undefined
+          position: member.position || "",   // Ensure it's an empty string if null/undefined
+          society: member.society || "",     // Ensure it's an empty string if null/undefined
+          year: member.year || "",           // Ensure it's an empty string if null/undefined
           socialMedia: socialMediaWithKeys,
         });
         setImagePreview(member.photo?.asset?.url || null);
@@ -80,10 +84,24 @@ const EditTeam = () => {
 
     setLoading(true);
     try {
+      // Optional: If there's an existing photo, you might want to delete the old asset from Sanity.
+      // This prevents orphaned assets in your Sanity dataset.
+      // Make sure your Sanity client has permissions to delete assets.
+      // if (formData.photo?.asset?._ref) {
+      //   console.log("Deleting old asset:", formData.photo.asset._ref);
+      //   await client.delete(formData.photo.asset._ref);
+      // }
+
       const asset = await client.assets.upload("image", file);
       setFormData((prevData) => ({
         ...prevData,
-        photo: { _type: "image", asset: { _ref: asset._id } },
+        photo: {
+          _type: "image",
+          asset: {
+            _type: "reference",
+            _ref: asset._id, // Use the _id of the newly uploaded asset
+          },
+        },
       }));
       setImagePreview(URL.createObjectURL(file));
     } catch (error) {
@@ -96,7 +114,7 @@ const EditTeam = () => {
   const handleRemovePhoto = () => {
     setFormData((prevData) => ({
       ...prevData,
-      photo: null,
+      photo: null, // Set photo to null to indicate removal
     }));
     setImagePreview(null);
   };
@@ -142,9 +160,35 @@ const EditTeam = () => {
     setLoading(true);
 
     try {
-      // Prepare the update payload
-      const updatedData = {
-        ...formData,
+      // Start a patch operation for this specific document
+      const patchOperation = client.patch(id);
+
+      // Handle photo update/removal explicitly
+      if (formData.photo === null) {
+        // If photo was explicitly removed by the user, unset the field in Sanity
+        patchOperation.unset(["photo"]);
+      } else if (formData.photo && formData.photo.asset && formData.photo.asset._ref) {
+        // If a photo exists (either the original one or a newly uploaded one),
+        // ensure it's properly referenced in the patch.
+        patchOperation.set({
+          photo: {
+            _type: "image",
+            asset: {
+              _type: "reference",
+              _ref: formData.photo.asset._ref,
+            },
+          },
+        });
+      }
+
+      // Prepare other updates from formData
+      const otherUpdates = {
+        name: formData.name,
+        committee: formData.committee,
+        position: formData.position,
+        society: formData.society,
+        year: formData.year,
+        isWebsiteTeam: formData.isWebsiteTeam,
         socialMedia: formData.socialMedia
           .filter((item) => item.platform && item.url) // Only include filled social media entries
           .map((item) => ({
@@ -154,13 +198,12 @@ const EditTeam = () => {
           })),
       };
 
-      // Add photo only if it exists
-      if (!formData.photo) {
-        delete updatedData.photo; // Omit photo if not provided
-      }
+      // Apply other updates using .set on the same patch operation
+      patchOperation.set(otherUpdates);
 
-      // Update the team member in Sanity
-      await client.patch(id).set(updatedData).commit();
+      // Commit the entire patch operation
+      await patchOperation.commit();
+
       navigate("/");
     } catch (error) {
       console.error("Error updating team member:", error);
