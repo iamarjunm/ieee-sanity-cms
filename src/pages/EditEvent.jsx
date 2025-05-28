@@ -1,6 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { client } from "../sanityClient";
+import { v4 as uuidv4 } from "uuid";
+import imageUrlBuilder from "@sanity/image-url";
+
+// Configure urlFor
+const builder = imageUrlBuilder(client);
+function urlFor(source) {
+  return builder.image(source);
+}
 
 const EditEvent = () => {
   const { id } = useParams();
@@ -58,13 +66,13 @@ const EditEvent = () => {
           category,
           contactInfo,
           poster{
-            asset->{url}
+            asset->{_ref}
           },
           images[]{
-            asset->{url}
+            asset->{_ref}
           },
           resources[]{
-            asset->{url}
+            asset->{_ref}
           }
         }`,
         { id }
@@ -76,9 +84,11 @@ const EditEvent = () => {
           startDateTime: formatDateTimeForInput(event.startDateTime),
           endDateTime: formatDateTimeForInput(event.endDateTime),
           contactInfo: event.contactInfo || { contactPerson: "", contactPhone: "" },
-          poster: event.poster?.asset?.url || null,
-          images: event.images?.map((img) => img.asset.url) || [],
-          resources: event.resources?.map((res) => res.asset.url) || [],
+          poster: event.poster || null,
+          images: event.images || [],
+          resources: event.resources || [],
+          eventOverview: event.eventOverview || "", // Ensure eventOverview is a string
+          description: event.description || "", // Ensure description is a string
         });
       }
       setLoading(false);
@@ -151,47 +161,94 @@ const EditEvent = () => {
 
     try {
       // Upload poster if a new file is selected
-      let posterAssetId = eventData.poster;
+      let posterRef = eventData.poster?.asset?._ref; // Use existing _ref if available
       if (posterFile) {
         const posterAsset = await client.assets.upload("image", posterFile);
-        posterAssetId = posterAsset._id;
+        posterRef = posterAsset._id; // Use the _id of the uploaded asset
       }
 
-      // Upload images if new files are selected
-      let imageAssetIds = eventData.images;
-      if (imageFiles.length > 0) {
-        const uploadedImages = await Promise.all(
-          imageFiles.map((file) => client.assets.upload("image", file))
-        );
-        imageAssetIds = [...imageAssetIds, ...uploadedImages.map((img) => img._id)];
-      }
+      // Upload new images if files are selected
+      const uploadedImages = await Promise.all(
+        imageFiles.map((file) => client.assets.upload("image", file))
+      );
+      const newImageRefs = uploadedImages.map((asset) => ({
+        _key: uuidv4(), // Add a unique _key
+        _type: "image",
+        asset: {
+          _type: "reference",
+          _ref: asset._id, // Use the _id of the uploaded asset
+        },
+      }));
 
-      // Upload resources if new files are selected
-      let resourceAssetIds = eventData.resources;
-      if (resourceFiles.length > 0) {
-        const uploadedResources = await Promise.all(
-          resourceFiles.map((file) => client.assets.upload("file", file))
-        );
-        resourceAssetIds = [...resourceAssetIds, ...uploadedResources.map((res) => res._id)];
-      }
+      // Combine existing images with new images
+      const allImageRefs = [
+        ...eventData.images
+          .filter((img) => img?.asset?._ref) // Filter out invalid images
+          .map((img) => ({
+            _key: uuidv4(), // Add a unique _key
+            _type: "image",
+            asset: {
+              _type: "reference",
+              _ref: img.asset._ref, // Use the existing _ref
+            },
+          })),
+        ...newImageRefs,
+      ];
+
+      // Upload new resources if files are selected
+      const uploadedResources = await Promise.all(
+        resourceFiles.map((file) => client.assets.upload("file", file))
+      );
+      const newResourceRefs = uploadedResources.map((asset) => ({
+        _key: uuidv4(), // Add a unique _key
+        _type: "file",
+        asset: {
+          _type: "reference",
+          _ref: asset._id, // Use the _id of the uploaded asset
+        },
+      }));
+
+      // Combine existing resources with new resources
+      const allResourceRefs = [
+        ...eventData.resources
+          .filter((res) => res?.asset?._ref) // Filter out invalid resources
+          .map((res) => ({
+            _key: uuidv4(), // Add a unique _key
+            _type: "file",
+            asset: {
+              _type: "reference",
+              _ref: res.asset._ref, // Use the existing _ref
+            },
+          })),
+        ...newResourceRefs,
+      ];
 
       // Prepare the update payload
       const updatePayload = {
         ...eventData,
-        images: imageAssetIds.map((id) => ({ _type: "image", asset: { _ref: id } })),
-        resources: resourceAssetIds.map((id) => ({ _type: "file", asset: { _ref: id } })),
+        images: allImageRefs,
+        resources: allResourceRefs,
       };
 
       // Add poster only if it exists
-      if (posterAssetId) {
-        updatePayload.poster = { _type: "image", asset: { _ref: posterAssetId } };
-      } else if (eventData.poster === null) {
+      if (posterRef) {
+        updatePayload.poster = {
+          _type: "image",
+          asset: {
+            _type: "reference",
+            _ref: posterRef, // Use the _id of the uploaded poster
+          },
+        };
+      } else {
         // If poster is removed, unset the poster field
         await client.patch(id).unset(["poster"]).commit();
       }
 
       // Update event data in Sanity
-      await client.patch(id).set(updatePayload).commit();
+      await client
+        .patch(id)
+        .set(updatePayload)
+        .commit();
 
       navigate("/");
     } catch (error) {
@@ -363,10 +420,10 @@ const EditEvent = () => {
           {/* Upload Poster */}
           <div>
             <label className="block text-gray-300 mb-1">Event Poster</label>
-            {eventData.poster && (
+            {eventData.poster?.asset?._ref && (
               <div className="mb-4 flex items-center gap-4">
                 <img
-                  src={eventData.poster}
+                  src={urlFor(eventData.poster).url()}
                   alt="Event Poster"
                   className="w-32 h-32 object-cover rounded"
                 />
@@ -390,23 +447,25 @@ const EditEvent = () => {
           {/* Upload Images */}
           <div>
             <label className="block text-gray-300 mb-1">Event Images</label>
-            {eventData.images.length > 0 && (
+            {eventData.images?.length > 0 && (
               <div className="flex flex-wrap gap-4 mb-4">
                 {eventData.images.map((img, index) => (
-                  <div key={index} className="relative">
-                    <img
-                      src={img}
-                      alt={`Event Image ${index + 1}`}
-                      className="w-32 h-32 object-cover rounded"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveImage(index)}
-                      className="absolute top-0 right-0 bg-red-500 hover:bg-red-600 px-2 py-1 rounded-full text-white"
-                    >
-                      ×
-                    </button>
-                  </div>
+                  img?.asset?._ref && (
+                    <div key={index} className="relative">
+                      <img
+                        src={urlFor(img).url()}
+                        alt={`Event Image ${index + 1}`}
+                        className="w-32 h-32 object-cover rounded"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveImage(index)}
+                        className="absolute top-0 right-0 bg-red-500 hover:bg-red-600 px-2 py-1 rounded-full text-white"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )
                 ))}
               </div>
             )}
@@ -422,26 +481,28 @@ const EditEvent = () => {
           {/* Upload Resources */}
           <div>
             <label className="block text-gray-300 mb-1">Resources</label>
-            {eventData.resources.length > 0 && (
+            {eventData.resources?.length > 0 && (
               <div className="mb-4">
                 {eventData.resources.map((res, index) => (
-                  <div key={index} className="flex items-center gap-4 mb-2">
-                    <a
-                      href={res}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-400 hover:underline"
-                    >
-                      Resource {index + 1}
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveResource(index)}
-                      className="bg-red-500 hover:bg-red-600 px-2 py-1 rounded-lg text-white"
-                    >
-                      Remove
-                    </button>
-                  </div>
+                  res?.asset?._ref && (
+                    <div key={index} className="flex items-center gap-4 mb-2">
+                      <a
+                        href={urlFor(res).url()}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 hover:underline"
+                      >
+                        Resource {index + 1}
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveResource(index)}
+                        className="bg-red-500 hover:bg-red-600 px-2 py-1 rounded-lg text-white"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )
                 ))}
               </div>
             )}

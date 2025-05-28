@@ -70,36 +70,67 @@ const AddEvent = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-
+  
     try {
       // Upload poster if a new file is selected
-      const posterId = poster ? await uploadFile(poster) : null;
-
+      let posterRef = null;
+      if (poster) {
+        const posterAsset = await client.assets.upload("image", poster);
+        posterRef = posterAsset._id; // Use the _id of the uploaded asset
+      }
+  
       // Upload images if new files are selected
-      const imagesIds = await Promise.all(images.map(uploadFile));
-
+      const uploadedImages = await Promise.all(
+        images.map((file) => client.assets.upload("image", file))
+      );
+      const imageRefs = uploadedImages.map((asset) => ({
+        _key: uuidv4(), // Add a unique _key
+        _type: "image",
+        asset: {
+          _type: "reference",
+          _ref: asset._id, // Use the _id of the uploaded asset
+        },
+      }));
+  
       // Upload resources if new files are selected
-      const resourceIds = await Promise.all(resources.map(uploadFile));
-
+      const uploadedResources = await Promise.all(
+        resources.map((file) => client.assets.upload("file", file))
+      );
+      const resourceRefs = uploadedResources.map((asset) => ({
+        _key: uuidv4(), // Add a unique _key
+        _type: "file",
+        asset: {
+          _type: "reference",
+          _ref: asset._id, // Use the _id of the uploaded asset
+        },
+      }));
+  
       // Create new event object
       const newEvent = {
         _type: "event",
         _id: uuidv4(),
         ...eventData,
-        images: imagesIds.map((id) => ({ _type: "image", asset: { _ref: id } })),
-        resources: resourceIds.map((id) => ({ _type: "file", asset: { _ref: id } })),
+        images: imageRefs,
+        resources: resourceRefs,
       };
-
+  
       // Add poster only if it exists
-      if (posterId) {
-        newEvent.poster = { _type: "image", asset: { _ref: posterId } };
+      if (posterRef) {
+        newEvent.poster = {
+          _type: "image",
+          asset: {
+            _type: "reference",
+            _ref: posterRef, // Use the _id of the uploaded poster
+          },
+        };
       }
-
+  
       // Save the new event to Sanity
       await client.create(newEvent);
       navigate("/");
     } catch (error) {
       console.error("Error adding event:", error);
+      alert("Failed to create event. Please try again.");
     } finally {
       setLoading(false);
     }
