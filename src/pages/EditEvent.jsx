@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { client } from "../sanityClient";
+import { client } from "../sanityClient"; // Assuming sanityClient is correctly configured
 import { v4 as uuidv4 } from "uuid";
 import imageUrlBuilder from "@sanity/image-url";
 
@@ -13,6 +13,7 @@ function urlFor(source) {
 const EditEvent = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+
   const [eventData, setEventData] = useState({
     name: "",
     startDateTime: "",
@@ -34,9 +35,10 @@ const EditEvent = () => {
     images: [],
     resources: [],
   });
-  const [posterFile, setPosterFile] = useState(null);
-  const [imageFiles, setImageFiles] = useState([]);
-  const [resourceFiles, setResourceFiles] = useState([]);
+
+  const [posterFile, setPosterFile] = useState(null); // Holds the new poster file chosen by user
+  const [imageFiles, setImageFiles] = useState([]); // Holds new image files chosen by user
+  const [resourceFiles, setResourceFiles] = useState([]); // Holds new resource files chosen by user
   const [loading, setLoading] = useState(true);
 
   // Helper function to convert ISO 8601 datetime to "YYYY-MM-DDTHH:MM" format
@@ -44,54 +46,76 @@ const EditEvent = () => {
     if (!isoString) return "";
     const date = new Date(isoString);
     const offset = date.getTimezoneOffset() * 60000; // Convert offset to milliseconds
-    const localISOTime = new Date(date.getTime() - offset).toISOString().slice(0, 16);
+    const localISOTime = new Date(date.getTime() - offset)
+      .toISOString()
+      .slice(0, 16);
     return localISOTime;
   };
 
   useEffect(() => {
     const fetchEvent = async () => {
-      const event = await client.fetch(
-        `*[_type == "event" && _id == $id][0]{
-          name,
-          startDateTime,
-          endDateTime,
-          mode,
-          eventOverview,
-          formLink,
-          description,
-          prizePool,
-          teamSize,
-          entryFee,
-          society,
-          category,
-          contactInfo,
-          poster{
-            asset->{_ref}
-          },
-          images[]{
-            asset->{_ref}
-          },
-          resources[]{
-            asset->{_ref}
-          }
-        }`,
-        { id }
-      );
+      try {
+        const event = await client.fetch(
+          `*[_type == "event" && _id == $id][0]{
+            name,
+            startDateTime,
+            endDateTime,
+            mode,
+            eventOverview,
+            formLink,
+            description,
+            prizePool,
+            teamSize,
+            entryFee,
+            society,
+            category,
+            contactInfo,
+            poster{
+              asset->{_ref, url} // Fetch url for display and _ref for potential deletion
+            },
+            images[]{
+              _key, // Crucial to fetch _key for existing array items
+              asset->{_ref, url}
+            },
+            resources[]{
+              _key, // Crucial to fetch _key for existing array items
+              asset->{_ref, url}
+            }
+          }`,
+          { id }
+        );
 
-      if (event) {
-        setEventData({
-          ...event,
-          startDateTime: formatDateTimeForInput(event.startDateTime),
-          endDateTime: formatDateTimeForInput(event.endDateTime),
-          contactInfo: event.contactInfo || { contactPerson: "", contactPhone: "" },
-          poster: event.poster || null,
-          images: event.images || [],
-          resources: event.resources || [],
-          eventOverview: event.eventOverview || "", // Ensure eventOverview is a string
-          description: event.description || "", // Ensure description is a string
-        });
+        if (event) {
+          setEventData({
+            ...event,
+            // Ensure all string fields have a fallback to "" to prevent React warnings
+            name: event.name || "",
+            startDateTime: formatDateTimeForInput(event.startDateTime),
+            endDateTime: formatDateTimeForInput(event.endDateTime),
+            mode: event.mode || "online", // Default if null
+            eventOverview: event.eventOverview || "",
+            formLink: event.formLink || "",
+            description: event.description || "",
+            prizePool: event.prizePool || "",
+            teamSize: event.teamSize || 1, // Default if null
+            entryFee: event.entryFee || "",
+            society: event.society || "",
+            category: event.category || "technical", // Default if null
+            contactInfo: {
+              contactPerson: event.contactInfo?.contactPerson || "",
+              contactPhone: event.contactInfo?.contactPhone || "",
+            },
+            poster: event.poster || null,
+            images: event.images || [],
+            resources: event.resources || [],
+          });
+        }
+      } catch (error) {
+        console.error("Error fetching event:", error);
+        // Optionally set an error state to display to the user
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
     fetchEvent();
   }, [id]);
@@ -112,43 +136,123 @@ const EditEvent = () => {
     }
   };
 
-  const handleFileChange = (e, setFile) => {
+  const handleFileChange = (e, setFileState) => {
     const file = e.target.files[0];
-    setFile(file);
+    setFileState(file);
+    // For immediate preview, update eventData.poster if it's the poster file
+    if (setFileState === setPosterFile) {
+      setEventData((prev) => ({
+        ...prev,
+        poster: file ? { asset: { url: URL.createObjectURL(file) } } : null,
+      }));
+    }
   };
 
-  const handleMultipleFilesChange = (e, setFiles) => {
+  const handleMultipleFilesChange = (e, setFilesState) => {
     const files = Array.from(e.target.files);
-    setFiles((prev) => [...prev, ...files]);
+    setFilesState((prev) => [...prev, ...files]);
+
+    // For immediate preview of new images (not existing ones)
+    if (setFilesState === setImageFiles) {
+      const newImagePreviews = files.map((file) => ({
+        _key: uuidv4(), // Assign a temporary key for preview
+        asset: { url: URL.createObjectURL(file) },
+      }));
+      setEventData((prev) => ({
+        ...prev,
+        images: [...prev.images, ...newImagePreviews],
+      }));
+    }
+    // For immediate preview of new resources (not existing ones)
+    if (setFilesState === setResourceFiles) {
+      const newResourcePreviews = files.map((file) => ({
+        _key: uuidv4(), // Assign a temporary key for preview
+        asset: { url: URL.createObjectURL(file), _type: "file" }, // type file for resources
+      }));
+      setEventData((prev) => ({
+        ...prev,
+        resources: [...prev.resources, ...newResourcePreviews],
+      }));
+    }
   };
 
-  const handleRemovePoster = () => {
+  // Function to delete an asset from Sanity (optional, but good for cleanup)
+  const deleteSanityAsset = async (assetRef) => {
+    if (assetRef) {
+      try {
+        await client.delete(assetRef);
+        console.log("Deleted old asset:", assetRef);
+      } catch (error) {
+        console.error("Error deleting old asset:", assetRef, error);
+      }
+    }
+  };
+
+  const handleRemovePoster = async () => {
+    // If there's an existing poster asset, delete it from Sanity
+    if (eventData.poster?.asset?._ref) {
+      await deleteSanityAsset(eventData.poster.asset._ref);
+    }
     setEventData((prev) => ({ ...prev, poster: null }));
-    setPosterFile(null);
+    setPosterFile(null); // Clear any newly selected file too
   };
 
-  const handleRemoveImage = (index) => {
+  const handleRemoveImage = async (indexToRemove) => {
+    const imageToRemove = eventData.images[indexToRemove];
+    // If it's an existing asset, delete it from Sanity
+    if (imageToRemove?.asset?._ref) {
+      await deleteSanityAsset(imageToRemove.asset._ref);
+    }
     setEventData((prev) => ({
       ...prev,
-      images: prev.images.filter((_, i) => i !== index),
+      images: prev.images.filter((_, i) => i !== indexToRemove),
     }));
+    // Clear new files for simplicity. A more robust solution would track new files by _key.
+    setImageFiles([]);
   };
 
-  const handleRemoveResource = (index) => {
+  const handleRemoveResource = async (indexToRemove) => {
+    const resourceToRemove = eventData.resources[indexToRemove];
+    // If it's an existing asset, delete it from Sanity
+    if (resourceToRemove?.asset?._ref) {
+      await deleteSanityAsset(resourceToRemove.asset._ref);
+    }
     setEventData((prev) => ({
       ...prev,
-      resources: prev.resources.filter((_, i) => i !== index),
+      resources: prev.resources.filter((_, i) => i !== indexToRemove),
     }));
+    // Clear new files for simplicity
+    setResourceFiles([]);
   };
 
   const handleDeleteEvent = async () => {
-    if (window.confirm("Are you sure you want to delete this event?")) {
+    if (
+      window.confirm(
+        "Are you sure you want to delete this event? This action cannot be undone."
+      )
+    ) {
       setLoading(true);
       try {
+        // Optional: Delete associated assets (poster, images, resources) as well
+        if (eventData.poster?.asset?._ref) {
+          await deleteSanityAsset(eventData.poster.asset._ref);
+        }
+        await Promise.all(
+          eventData.images.map(
+            (img) => img.asset?._ref && deleteSanityAsset(img.asset._ref)
+          )
+        );
+        await Promise.all(
+          eventData.resources.map(
+            (res) => res.asset?._ref && deleteSanityAsset(res.asset._ref)
+          )
+        );
+
         await client.delete(id);
         navigate("/");
       } catch (error) {
         console.error("Error deleting event:", error);
+        alert("Failed to delete event. Please try again.");
       } finally {
         setLoading(false);
       }
@@ -160,105 +264,144 @@ const EditEvent = () => {
     setLoading(true);
 
     try {
-      // Upload poster if a new file is selected
-      let posterRef = eventData.poster?.asset?._ref; // Use existing _ref if available
+      // Start a transaction for atomic updates
+      const transaction = client.transaction();
+
+      // --- Handle Poster Upload/Removal ---
       if (posterFile) {
+        // A new poster file is selected: upload it
         const posterAsset = await client.assets.upload("image", posterFile);
-        posterRef = posterAsset._id; // Use the _id of the uploaded asset
+        // Add a patch operation to set the new poster
+        transaction.patch(id, {
+          set: {
+            poster: {
+              _type: "image",
+              asset: {
+                _type: "reference",
+                _ref: posterAsset._id,
+              },
+            },
+          },
+        });
+      } else if (eventData.poster === null) {
+        // Poster was explicitly removed by setting eventData.poster to null
+        // Add an unset operation to the transaction
+        transaction.patch(id, {
+          unset: ["poster"],
+        });
       }
+      // If posterFile is null and eventData.poster is not null, it means no change to existing poster.
+      // In this scenario, we don't need to add any specific patch operation for 'poster' to the transaction.
 
-      // Upload new images if files are selected
-      const uploadedImages = await Promise.all(
-        imageFiles.map((file) => client.assets.upload("image", file))
-      );
-      const newImageRefs = uploadedImages.map((asset) => ({
-        _key: uuidv4(), // Add a unique _key
-        _type: "image",
-        asset: {
-          _type: "reference",
-          _ref: asset._id, // Use the _id of the uploaded asset
-        },
-      }));
-
-      // Combine existing images with new images
-      const allImageRefs = [
-        ...eventData.images
-          .filter((img) => img?.asset?._ref) // Filter out invalid images
-          .map((img) => ({
-            _key: uuidv4(), // Add a unique _key
+      // --- Handle New Images Upload ---
+      const newUploadedImageRefs = await Promise.all(
+        imageFiles.map(async (file) => {
+          const asset = await client.assets.upload("image", file);
+          return {
+            _key: uuidv4(),
             _type: "image",
             asset: {
               _type: "reference",
-              _ref: img.asset._ref, // Use the existing _ref
+              _ref: asset._id,
             },
-          })),
-        ...newImageRefs,
-      ];
-
-      // Upload new resources if files are selected
-      const uploadedResources = await Promise.all(
-        resourceFiles.map((file) => client.assets.upload("file", file))
+          };
+        })
       );
-      const newResourceRefs = uploadedResources.map((asset) => ({
-        _key: uuidv4(), // Add a unique _key
-        _type: "file",
-        asset: {
-          _type: "reference",
-          _ref: asset._id, // Use the _id of the uploaded asset
-        },
-      }));
 
-      // Combine existing resources with new resources
-      const allResourceRefs = [
-        ...eventData.resources
-          .filter((res) => res?.asset?._ref) // Filter out invalid resources
-          .map((res) => ({
-            _key: uuidv4(), // Add a unique _key
+      // --- Handle New Resources Upload ---
+      const newUploadedResourceRefs = await Promise.all(
+        resourceFiles.map(async (file) => {
+          const asset = await client.assets.upload("file", file);
+          return {
+            _key: uuidv4(),
             _type: "file",
             asset: {
               _type: "reference",
-              _ref: res.asset._ref, // Use the existing _ref
+              _ref: asset._id,
             },
-          })),
-        ...newResourceRefs,
-      ];
+          };
+        })
+      );
 
-      // Prepare the update payload
-      const updatePayload = {
-        ...eventData,
-        images: allImageRefs,
-        resources: allResourceRefs,
-      };
-
-      // Add poster only if it exists
-      if (posterRef) {
-        updatePayload.poster = {
+      // Combine existing images/resources (from Sanity) with newly uploaded ones.
+      // Crucially: Filter and map only VALID existing Sanity references.
+      // This prevents sending `_ref: null` or `_ref: undefined` to Sanity.
+      const existingSanityImageRefs = (eventData.images || [])
+        .filter((img) => img.asset && typeof img.asset._ref === "string")
+        .map((img) => ({
+          _key: img._key, // Keep existing _key
           _type: "image",
           asset: {
             _type: "reference",
-            _ref: posterRef, // Use the _id of the uploaded poster
+            _ref: img.asset._ref,
           },
-        };
-      } else {
-        // If poster is removed, unset the poster field
-        await client.patch(id).unset(["poster"]).commit();
-      }
+        }));
 
-      // Update event data in Sanity
-      await client
-        .patch(id)
-        .set(updatePayload)
-        .commit();
+      const finalImageArray = [...existingSanityImageRefs, ...newUploadedImageRefs];
+
+      const existingSanityResourceRefs = (eventData.resources || [])
+        .filter((res) => res.asset && typeof res.asset._ref === "string")
+        .map((res) => ({
+          _key: res._key, // Keep existing _key
+          _type: "file",
+          asset: {
+            _type: "reference",
+            _ref: res.asset._ref,
+          },
+        }));
+
+      const finalResourceArray = [...existingSanityResourceRefs, ...newUploadedResourceRefs];
+
+      // Prepare the main update payload for other fields
+      // NOTE: We DO NOT include 'poster' in this payload here if it was handled
+      // by its own specific patch operation within the transaction.
+      const otherFieldsPayload = {
+        name: eventData.name,
+        startDateTime: eventData.startDateTime,
+        endDateTime: eventData.endDateTime,
+        mode: eventData.mode,
+        eventOverview: eventData.eventOverview,
+        formLink: eventData.formLink,
+        description: eventData.description,
+        prizePool: eventData.prizePool,
+        teamSize: eventData.teamSize,
+        entryFee: eventData.entryFee,
+        society: eventData.society,
+        category: eventData.category,
+        contactInfo: eventData.contactInfo,
+        images: finalImageArray, // Set the combined array of images
+        resources: finalResourceArray, // Set the combined array of resources
+      };
+
+      // Add the main payload update to the transaction.
+      // This will set/overwrite all other fields on the document.
+      transaction.patch(id, {
+        set: otherFieldsPayload,
+      });
+
+      // Commit the entire transaction
+      await transaction.commit();
+
+      // Reset file states after successful submission to avoid re-uploading on subsequent submits
+      setPosterFile(null);
+      setImageFiles([]);
+      setResourceFiles([]);
 
       navigate("/");
     } catch (error) {
       console.error("Error updating event:", error);
+      alert("Failed to save changes. Please check the console for details.");
     } finally {
       setLoading(false);
     }
   };
 
-  if (loading) return <div className="flex justify-center text-white">Loading...</div>;
+  if (loading)
+    return (
+      <div className="flex justify-center text-white min-h-screen items-center">
+        Loading event data...
+      </div>
+    );
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center p-6">
@@ -274,29 +417,36 @@ const EditEvent = () => {
               value={eventData.name}
               onChange={handleChange}
               className="w-full p-3 rounded bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none"
+              required
             />
           </div>
 
           {/* Date & Time */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-gray-300 mb-1">Start Date & Time</label>
+              <label className="block text-gray-300 mb-1">
+                Start Date & Time
+              </label>
               <input
                 type="datetime-local"
                 name="startDateTime"
                 value={eventData.startDateTime}
                 onChange={handleChange}
                 className="w-full p-3 rounded bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none"
+                required
               />
             </div>
             <div>
-              <label className="block text-gray-300 mb-1">End Date & Time</label>
+              <label className="block text-gray-300 mb-1">
+                End Date & Time
+              </label>
               <input
                 type="datetime-local"
                 name="endDateTime"
                 value={eventData.endDateTime}
                 onChange={handleChange}
                 className="w-full p-3 rounded bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none"
+                required
               />
             </div>
           </div>
@@ -317,7 +467,9 @@ const EditEvent = () => {
 
           {/* Event Overview */}
           <div>
-            <label className="block text-gray-300 mb-1">Event Overview (Before Event)</label>
+            <label className="block text-gray-300 mb-1">
+              Event Overview (Before Event)
+            </label>
             <textarea
               name="eventOverview"
               value={eventData.eventOverview}
@@ -340,7 +492,9 @@ const EditEvent = () => {
 
           {/* Detailed Description */}
           <div>
-            <label className="block text-gray-300 mb-1">Detailed Description (Post Event)</label>
+            <label className="block text-gray-300 mb-1">
+              Detailed Description (Post Event)
+            </label>
             <textarea
               name="description"
               value={eventData.description}
@@ -388,7 +542,9 @@ const EditEvent = () => {
 
           {/* Organizing Society */}
           <div>
-            <label className="block text-gray-300 mb-1">Organizing Society</label>
+            <label className="block text-gray-300 mb-1">
+              Organizing Society
+            </label>
             <select
               name="society"
               value={eventData.society}
@@ -420,10 +576,13 @@ const EditEvent = () => {
           {/* Upload Poster */}
           <div>
             <label className="block text-gray-300 mb-1">Event Poster</label>
-            {eventData.poster?.asset?._ref && (
+            {(eventData.poster?.asset?.url || posterFile) && ( // Show preview if existing or new file
               <div className="mb-4 flex items-center gap-4">
                 <img
-                  src={urlFor(eventData.poster).url()}
+                  src={
+                    eventData.poster?.asset?.url ||
+                    (posterFile ? URL.createObjectURL(posterFile) : "")
+                  }
                   alt="Event Poster"
                   className="w-32 h-32 object-cover rounded"
                 />
@@ -447,13 +606,13 @@ const EditEvent = () => {
           {/* Upload Images */}
           <div>
             <label className="block text-gray-300 mb-1">Event Images</label>
-            {eventData.images?.length > 0 && (
+            {(eventData.images?.length > 0 || imageFiles.length > 0) && ( // Show if existing or new files
               <div className="flex flex-wrap gap-4 mb-4">
                 {eventData.images.map((img, index) => (
-                  img?.asset?._ref && (
-                    <div key={index} className="relative">
+                  (img?.asset?.url || img?.asset?._ref) && ( // Check for url or _ref for display
+                    <div key={img._key || index} className="relative">
                       <img
-                        src={urlFor(img).url()}
+                        src={img.asset?.url || urlFor(img).url()} // Prefer URL from fetch, fallback to urlFor
                         alt={`Event Image ${index + 1}`}
                         className="w-32 h-32 object-cover rounded"
                       />
@@ -481,13 +640,13 @@ const EditEvent = () => {
           {/* Upload Resources */}
           <div>
             <label className="block text-gray-300 mb-1">Resources</label>
-            {eventData.resources?.length > 0 && (
+            {(eventData.resources?.length > 0 || resourceFiles.length > 0) && ( // Show if existing or new files
               <div className="mb-4">
                 {eventData.resources.map((res, index) => (
-                  res?.asset?._ref && (
-                    <div key={index} className="flex items-center gap-4 mb-2">
+                  (res?.asset?.url || res?.asset?._ref) && ( // Check for url or _ref for display
+                    <div key={res._key || index} className="flex items-center gap-4 mb-2">
                       <a
-                        href={urlFor(res).url()}
+                        href={res.asset?.url || urlFor(res).url()} // Prefer URL from fetch, fallback to urlFor
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-blue-400 hover:underline"
