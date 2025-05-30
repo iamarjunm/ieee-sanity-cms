@@ -15,11 +15,8 @@ import {
   FaTimes,
   FaPlus,
   FaEdit,
-  FaTrashAlt,
   FaDownload,
   FaFileCsv,
-  FaCheckSquare,
-  FaSquare,
 } from "react-icons/fa";
 
 const Home = () => {
@@ -32,16 +29,10 @@ const Home = () => {
   const [selectedYear, setSelectedYear] = useState("");
   const navigate = useNavigate();
 
-  // Bulk selection states
-  const [selectedEventIds, setSelectedEventIds] = useState(new Set());
-  const [selectedTeamMemberIds, setSelectedTeamMemberIds] = useState(new Set());
-
   // Modal states
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editItemType, setEditItemType] = useState(null);
   const [itemToEdit, setItemToEdit] = useState(null);
-  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
-  const [bulkActionType, setBulkActionType] = useState(null);
 
   // Fetch data from Sanity
   const fetchData = useCallback(async () => {
@@ -171,79 +162,6 @@ const Home = () => {
       navigate(`/edit-team/${itemToEdit._id}`);
     }
     closeEditModal();
-  };
-
-  // Bulk selection handlers
-  const toggleSelectEvent = (id) => {
-    setSelectedEventIds(prev => {
-      const newSet = new Set(prev);
-      newSet.has(id) ? newSet.delete(id) : newSet.add(id);
-      return newSet;
-    });
-  };
-
-  const toggleSelectTeamMember = (id) => {
-    setSelectedTeamMemberIds(prev => {
-      const newSet = new Set(prev);
-      newSet.has(id) ? newSet.delete(id) : newSet.add(id);
-      return newSet;
-    });
-  };
-
-  const handleSelectAll = () => {
-    if (activeTab === 'events') {
-      setSelectedEventIds(prev => 
-        prev.size === filteredEvents.length ? new Set() : new Set(filteredEvents.map(e => e._id))
-      );
-    } else {
-      setSelectedTeamMemberIds(prev => 
-        prev.size === filteredTeamMembers.length ? new Set() : new Set(filteredTeamMembers.map(m => m._id))
-      );
-    }
-  };
-
-  // Bulk delete handlers
-  const openBulkDeleteModal = (type) => {
-    setBulkActionType(type);
-    setIsBulkDeleteModalOpen(true);
-  };
-
-  const closeBulkDeleteModal = () => {
-    setIsBulkDeleteModalOpen(false);
-    setBulkActionType(null);
-  };
-
-  const handleBulkDeleteConfirm = async () => {
-    setLoading(true);
-    const idsToDelete = bulkActionType === 'events' 
-      ? Array.from(selectedEventIds) 
-      : Array.from(selectedTeamMemberIds);
-
-    if (idsToDelete.length === 0) {
-      alert("No items selected for deletion.");
-      setLoading(false);
-      closeBulkDeleteModal();
-      return;
-    }
-
-    try {
-      await Promise.all(idsToDelete.map(id => client.delete(id)));
-      
-      if (bulkActionType === 'events') {
-        setEvents(prev => prev.filter(e => !idsToDelete.includes(e._id)));
-        setSelectedEventIds(new Set());
-      } else {
-        setTeamMembers(prev => prev.filter(m => !idsToDelete.includes(m._id)));
-        setSelectedTeamMemberIds(new Set());
-      }
-      alert(`Successfully deleted ${idsToDelete.length} item(s).`);
-    } catch (error) {
-      console.error("Bulk deletion failed:", error);
-      alert("Failed to delete one or more items. Check console for details.");
-    } finally {
-      setLoading(false);
-      closeBulkDeleteModal();
-    }
   };
 
   // Data export functions
@@ -413,8 +331,6 @@ const Home = () => {
                 setSearchTerm("");
                 setSelectedSociety("");
                 setSelectedYear("");
-                setSelectedEventIds(new Set());
-                setSelectedTeamMemberIds(new Set());
               }}
             >
               {tab === "events" && <FaCalendarAlt />}
@@ -518,14 +434,6 @@ const Home = () => {
                 >
                   <FaDownload /> Export JSON
                 </button>
-                {(activeTab === 'events' && selectedEventIds.size > 0) || (activeTab === 'team' && selectedTeamMemberIds.size > 0) ? (
-                  <button
-                    onClick={() => openBulkDeleteModal(activeTab === 'events' ? 'events' : 'teamMembers')}
-                    className="p-3 bg-red-600 hover:bg-red-700 text-white rounded-md transition duration-200 shadow-md flex items-center gap-2"
-                    title={`Delete selected ${activeTab === "events" ? "events" : "team members"}`}
-                  >
-                  </button>
-                ) : null}
               </div>
             </div>
 
@@ -538,25 +446,16 @@ const Home = () => {
                 </div>
               ) : activeTab === "events" ? (
                 <div className="bg-gray-800 p-6 rounded-xl shadow-2xl w-full flex-grow border border-gray-700">
-                  <div className="flex justify-between items-center mb-6 flex-wrap gap-3">
+                  <div className="flex justify-between items-center mb-6">
                     <h2 className="text-2xl font-bold text-teal-400 flex items-center gap-2">
                       <FaCalendarAlt /> Events Overview ({filteredEvents.length})
                     </h2>
-                    <div className="flex gap-3">
-                      <button
-                        onClick={handleSelectAll}
-                        className="p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md transition duration-200 shadow-md flex items-center gap-2"
-                        title={selectedEventIds.size === filteredEvents.length ? "Deselect all" : "Select all filtered events"}
-                      >
-                        {selectedEventIds.size === filteredEvents.length ? <FaCheckSquare /> : <FaSquare />} Select All
-                      </button>
-                      <button
-                        onClick={() => navigate("/add-event")}
-                        className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 flex items-center gap-2"
-                      >
-                        <FaPlus /> Add New Event
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => navigate("/add-event")}
+                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 flex items-center gap-2"
+                    >
+                      <FaPlus /> Add New Event
+                    </button>
                   </div>
                   <ul className="divide-y divide-gray-700 max-h-[60vh] overflow-y-auto pr-2">
                     {filteredEvents.length > 0 ? (
@@ -571,36 +470,27 @@ const Home = () => {
                             key={event._id}
                             className="py-4 px-3 rounded-lg flex items-center justify-between transition duration-200 ease-in-out hover:bg-gray-700"
                           >
-                            <div className="flex items-center flex-grow min-w-0">
-                              <input
-                                type="checkbox"
-                                className="form-checkbox h-5 w-5 text-blue-600 bg-gray-700 border-gray-600 rounded mr-4 focus:ring-blue-500"
-                                checked={selectedEventIds.has(event._id)}
-                                onChange={() => toggleSelectEvent(event._id)}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                              <div onClick={() => openEditModal('event', event)} className="cursor-pointer flex-grow min-w-0">
-                                <h3 className="text-xl font-semibold text-white flex items-center truncate">
-                                  {event.name}
-                                  <span className={`ml-3 text-xs font-bold px-2 py-1 rounded-full ${statusColor}`}>
-                                    {status}
+                            <div onClick={() => openEditModal('event', event)} className="cursor-pointer flex-grow min-w-0">
+                              <h3 className="text-xl font-semibold text-white flex items-center truncate">
+                                {event.name}
+                                <span className={`ml-3 text-xs font-bold px-2 py-1 rounded-full ${statusColor}`}>
+                                  {status}
+                                </span>
+                                {isNewItem(event._updatedAt) && (
+                                  <span className="ml-2 bg-green-500 text-xs font-bold px-2 py-1 rounded-full animate-pulse">
+                                    NEW!
                                   </span>
-                                  {isNewItem(event._updatedAt) && (
-                                    <span className="ml-2 bg-green-500 text-xs font-bold px-2 py-1 rounded-full animate-pulse">
-                                      NEW!
-                                    </span>
-                                  )}
-                                </h3>
-                                <p className="text-sm text-gray-400 mt-1 truncate">
-                                  🗓️{" "}
-                                  {event.startDateTime
-                                    ? new Date(event.startDateTime).toLocaleString()
-                                    : "No date available"}{" "}
-                                  | 💻 <span className="font-medium text-orange-300">{event.mode}</span> | 🏛️{" "}
-                                  <span className="text-blue-300">{event.society}</span>
-                                </p>
-                                <p className="text-xs text-gray-500 mt-0.5">Last Updated: {new Date(event._updatedAt).toLocaleString()}</p>
-                              </div>
+                                )}
+                              </h3>
+                              <p className="text-sm text-gray-400 mt-1 truncate">
+                                🗓️{" "}
+                                {event.startDateTime
+                                  ? new Date(event.startDateTime).toLocaleString()
+                                  : "No date available"}{" "}
+                                | 💻 <span className="font-medium text-orange-300">{event.mode}</span> | 🏛️{" "}
+                                <span className="text-blue-300">{event.society}</span>
+                              </p>
+                              <p className="text-xs text-gray-500 mt-0.5">Last Updated: {new Date(event._updatedAt).toLocaleString()}</p>
                             </div>
                             <button
                               onClick={(e) => { e.stopPropagation(); openEditModal('event', event); }}
@@ -621,25 +511,16 @@ const Home = () => {
                 </div>
               ) : (
                 <div className="bg-gray-800 p-6 rounded-xl shadow-2xl w-full flex-grow border border-gray-700">
-                  <div className="flex justify-between items-center mb-6 flex-wrap gap-3">
+                  <div className="flex justify-between items-center mb-6">
                     <h2 className="text-2xl font-bold text-yellow-400 flex items-center gap-2">
                       <FaUsers /> Team Members Directory ({filteredTeamMembers.length})
                     </h2>
-                    <div className="flex gap-3">
-                      <button
-                        onClick={handleSelectAll}
-                        className="p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md transition duration-200 shadow-md flex items-center gap-2"
-                        title={selectedTeamMemberIds.size === filteredTeamMembers.length ? "Deselect all" : "Select all filtered team members"}
-                      >
-                        {selectedTeamMemberIds.size === filteredTeamMembers.length ? <FaCheckSquare /> : <FaSquare />} Select All
-                      </button>
-                      <button
-                        onClick={() => navigate("/add-team")}
-                        className="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 flex items-center gap-2"
-                      >
-                        <FaPlus /> Add New Member
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => navigate("/add-team")}
+                      className="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 flex items-center gap-2"
+                    >
+                      <FaPlus /> Add New Member
+                    </button>
                   </div>
                   <ul className="divide-y divide-gray-700 max-h-[60vh] overflow-y-auto pr-2">
                     {filteredTeamMembers.length > 0 ? (
@@ -648,30 +529,21 @@ const Home = () => {
                           key={member._id}
                           className="py-4 px-3 rounded-lg flex items-center justify-between transition duration-200 ease-in-out hover:bg-gray-700"
                         >
-                          <div className="flex items-center flex-grow min-w-0">
-                            <input
-                              type="checkbox"
-                              className="form-checkbox h-5 w-5 text-blue-600 bg-gray-700 border-gray-600 rounded mr-4 focus:ring-blue-500"
-                              checked={selectedTeamMemberIds.has(member._id)}
-                              onChange={() => toggleSelectTeamMember(member._id)}
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                            <div onClick={() => openEditModal('team', member)} className="cursor-pointer flex-grow min-w-0">
-                              <h3 className="text-xl font-semibold text-white flex items-center truncate">
-                                {member.name}
-                                {isNewItem(member._updatedAt) && (
-                                  <span className="ml-2 bg-green-500 text-xs font-bold px-2 py-1 rounded-full animate-pulse">
-                                    NEW!
-                                  </span>
-                                )}
-                              </h3>
-                              <p className="text-sm text-gray-400 mt-1 truncate">
-                                💼 <span className="font-medium text-purple-300">{member.position}</span> | 🏛️{" "}
-                                <span className="text-green-300">{member.society}</span> | 📅{" "}
-                                <span className="text-yellow-300">{member.year || 'N/A'}</span>
-                              </p>
-                              <p className="text-xs text-gray-500 mt-0.5">Last Updated: {new Date(member._updatedAt).toLocaleString()}</p>
-                            </div>
+                          <div onClick={() => openEditModal('team', member)} className="cursor-pointer flex-grow min-w-0">
+                            <h3 className="text-xl font-semibold text-white flex items-center truncate">
+                              {member.name}
+                              {isNewItem(member._updatedAt) && (
+                                <span className="ml-2 bg-green-500 text-xs font-bold px-2 py-1 rounded-full animate-pulse">
+                                  NEW!
+                                </span>
+                              )}
+                            </h3>
+                            <p className="text-sm text-gray-400 mt-1 truncate">
+                              💼 <span className="font-medium text-purple-300">{member.position}</span> | 🏛️{" "}
+                              <span className="text-green-300">{member.society}</span> | 📅{" "}
+                              <span className="text-yellow-300">{member.year || 'N/A'}</span>
+                            </p>
+                            <p className="text-xs text-gray-500 mt-0.5">Last Updated: {new Date(member._updatedAt).toLocaleString()}</p>
                           </div>
                           <button
                             onClick={(e) => { e.stopPropagation(); openEditModal('team', member); }}
@@ -704,18 +576,6 @@ const Home = () => {
         onCancel={closeEditModal}
         confirmButtonText="Proceed to Edit"
         cancelButtonText="Cancel"
-      />
-
-      {/* Bulk Delete Confirmation Modal */}
-      <ConfirmationModal
-        isOpen={isBulkDeleteModalOpen}
-        title="Confirm Bulk Deletion"
-        message={`Are you sure you want to permanently delete ${bulkActionType === 'events' ? selectedEventIds.size : selectedTeamMemberIds.size} selected ${bulkActionType}? This action cannot be undone.`}
-        onConfirm={handleBulkDeleteConfirm}
-        onCancel={closeBulkDeleteModal}
-        confirmButtonText="Yes, Delete Permanently"
-        cancelButtonText="Cancel"
-        isDestructive={true}
       />
     </div>
   );
