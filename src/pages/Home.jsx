@@ -524,7 +524,6 @@ const Home = () => {
                     className="p-3 bg-red-600 hover:bg-red-700 text-white rounded-md transition duration-200 shadow-md flex items-center gap-2"
                     title={`Delete selected ${activeTab === "events" ? "events" : "team members"}`}
                   >
-                    <FaTrashAlt /> Delete Selected ({activeTab === 'events' ? selectedEventIds.size : selectedTeamMemberIds.size})
                   </button>
                 ) : null}
               </div>
