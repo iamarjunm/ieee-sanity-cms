@@ -31,6 +31,8 @@ const EditEvent = () => {
       contactPerson: "",
       contactPhone: "",
     },
+    speakers: [], // Added speakers array
+    winners: { firstPlace: "", secondPlace: "", thirdPlace: "" }, // Added winners object
     poster: null,
     images: [],
     resources: [],
@@ -39,6 +41,7 @@ const EditEvent = () => {
   const [posterFile, setPosterFile] = useState(null); // Holds the new poster file chosen by user
   const [imageFiles, setImageFiles] = useState([]); // Holds new image files chosen by user
   const [resourceFiles, setResourceFiles] = useState([]); // Holds new resource files chosen by user
+  const [speakerForm, setSpeakerForm] = useState({ name: "", profession: "", photoFile: null }); // For adding new speakers
   const [loading, setLoading] = useState(true);
 
   // Helper function to convert ISO 8601 datetime to "YYYY-MM-DDTHH:MM" format
@@ -70,6 +73,15 @@ const EditEvent = () => {
             society,
             category,
             contactInfo,
+            speakers[]{
+              _key,
+              name,
+              profession,
+              photo{
+                asset->{_ref, url}
+              }
+            },
+            winners,
             poster{
               asset->{_ref, url} // Fetch url for display and _ref for potential deletion
             },
@@ -86,6 +98,12 @@ const EditEvent = () => {
         );
 
         if (event) {
+          // Map speakers to include a temporary photoPreviewUrl for immediate display
+          const speakersWithPreview = (event.speakers || []).map(speaker => ({
+            ...speaker,
+            photoPreviewUrl: speaker.photo?.asset?.url || (speaker.photo ? urlFor(speaker.photo).url() : null)
+          }));
+
           setEventData({
             ...event,
             // Ensure all string fields have a fallback to "" to prevent React warnings
@@ -99,12 +117,14 @@ const EditEvent = () => {
             prizePool: event.prizePool || "",
             teamSize: event.teamSize || 1, // Default if null
             entryFee: event.entryFee || "",
-            society: event.society || "",
+            society: event.society || "ieee-sb", // Default added
             category: event.category || "technical", // Default if null
             contactInfo: {
               contactPerson: event.contactInfo?.contactPerson || "",
               contactPhone: event.contactInfo?.contactPhone || "",
             },
+            speakers: speakersWithPreview, // Use speakers with preview URLs
+            winners: event.winners || { firstPlace: "", secondPlace: "", thirdPlace: "" }, // Ensure winners object exists
             poster: event.poster || null,
             images: event.images || [],
             resources: event.resources || [],
@@ -122,14 +142,19 @@ const EditEvent = () => {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    if (name.includes(".")) {
-      const [parent, child] = name.split(".");
+    if (name === "teamSize") {
+      setEventData((prev) => ({ ...prev, [name]: Number(value) }));
+    } else if (name.startsWith("contactInfo.")) {
+      const contactFieldName = name.split(".")[1];
       setEventData((prev) => ({
         ...prev,
-        [parent]: {
-          ...prev[parent],
-          [child]: value,
-        },
+        contactInfo: { ...prev.contactInfo, [contactFieldName]: value },
+      }));
+    } else if (name.startsWith("winners.")) {
+      const winnerFieldName = name.split(".")[1];
+      setEventData((prev) => ({
+        ...prev,
+        winners: { ...prev.winners, [winnerFieldName]: value },
       }));
     } else {
       setEventData((prev) => ({ ...prev, [name]: value }));
@@ -203,12 +228,16 @@ const EditEvent = () => {
     if (imageToRemove?.asset?._ref) {
       await deleteSanityAsset(imageToRemove.asset._ref);
     }
+    // Revoke object URL if it was a new file being previewed
+    if (imageToRemove.asset?.url?.startsWith("blob:")) {
+        URL.revokeObjectURL(imageToRemove.asset.url);
+    }
     setEventData((prev) => ({
       ...prev,
       images: prev.images.filter((_, i) => i !== indexToRemove),
     }));
-    // Clear new files for simplicity. A more robust solution would track new files by _key.
-    setImageFiles([]);
+    // Clear new files. A more robust solution would track new files by _key.
+    setImageFiles([]); // This might be too aggressive if multiple new files were added
   };
 
   const handleRemoveResource = async (indexToRemove) => {
@@ -217,12 +246,76 @@ const EditEvent = () => {
     if (resourceToRemove?.asset?._ref) {
       await deleteSanityAsset(resourceToRemove.asset._ref);
     }
+    // Revoke object URL if it was a new file being previewed
+    if (resourceToRemove.asset?.url?.startsWith("blob:")) {
+        URL.revokeObjectURL(resourceToRemove.asset.url);
+    }
     setEventData((prev) => ({
       ...prev,
       resources: prev.resources.filter((_, i) => i !== indexToRemove),
     }));
-    // Clear new files for simplicity
-    setResourceFiles([]);
+    // Clear new files
+    setResourceFiles([]); // This might be too aggressive if multiple new files were added
+  };
+
+  // --- Speaker Handlers ---
+  const handleAddSpeaker = async () => {
+    if (!speakerForm.name || !speakerForm.profession) {
+      alert("Please fill in speaker's name and profession.");
+      return;
+    }
+
+    let photoRef = null;
+    let photoPreviewUrl = null;
+
+    if (speakerForm.photoFile) {
+      try {
+        const asset = await client.assets.upload("image", speakerForm.photoFile);
+        photoRef = {
+          _type: "image",
+          asset: {
+            _type: "reference",
+            _ref: asset._id,
+          },
+        };
+        photoPreviewUrl = URL.createObjectURL(speakerForm.photoFile); // Create URL for local preview
+      } catch (error) {
+        console.error("Error uploading speaker photo:", error);
+        alert("Failed to upload speaker photo. Please try again.");
+        return;
+      }
+    }
+
+    setEventData((prev) => ({
+      ...prev,
+      speakers: [
+        ...prev.speakers,
+        {
+          _key: uuidv4(),
+          name: speakerForm.name,
+          profession: speakerForm.profession,
+          photo: photoRef, // Sanity reference
+          photoPreviewUrl: photoPreviewUrl, // Local preview URL
+        },
+      ],
+    }));
+    setSpeakerForm({ name: "", profession: "", photoFile: null }); // Reset speaker form
+  };
+
+  const handleRemoveSpeaker = async (indexToRemove) => {
+    const speakerToRemove = eventData.speakers[indexToRemove];
+    // If it's an existing Sanity asset, delete it
+    if (speakerToRemove.photo?.asset?._ref) {
+      await deleteSanityAsset(speakerToRemove.photo.asset._ref);
+    }
+    // Revoke the object URL if it was created for local preview
+    if (speakerToRemove.photoPreviewUrl && speakerToRemove.photoPreviewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(speakerToRemove.photoPreviewUrl);
+    }
+    setEventData((prev) => ({
+      ...prev,
+      speakers: prev.speakers.filter((_, i) => i !== indexToRemove),
+    }));
   };
 
   const handleDeleteEvent = async () => {
@@ -233,7 +326,7 @@ const EditEvent = () => {
     ) {
       setLoading(true);
       try {
-        // Optional: Delete associated assets (poster, images, resources) as well
+        // Optional: Delete associated assets (poster, images, resources, speaker photos) as well
         if (eventData.poster?.asset?._ref) {
           await deleteSanityAsset(eventData.poster.asset._ref);
         }
@@ -245,6 +338,11 @@ const EditEvent = () => {
         await Promise.all(
           eventData.resources.map(
             (res) => res.asset?._ref && deleteSanityAsset(res.asset._ref)
+          )
+        );
+        await Promise.all(
+          eventData.speakers.map(
+            (speaker) => speaker.photo?.asset?._ref && deleteSanityAsset(speaker.photo.asset._ref)
           )
         );
 
@@ -262,6 +360,19 @@ const EditEvent = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+
+    // Revoke all temporary object URLs created for previews before submission
+    if (posterFile) {
+        URL.revokeObjectURL(URL.createObjectURL(posterFile));
+    }
+    imageFiles.forEach(file => URL.revokeObjectURL(URL.createObjectURL(file)));
+    resourceFiles.forEach(file => URL.revokeObjectURL(URL.createObjectURL(file)));
+    eventData.speakers.forEach(speaker => {
+      if (speaker.photoPreviewUrl && speaker.photoPreviewUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(speaker.photoPreviewUrl);
+      }
+    });
+
 
     try {
       // Start a transaction for atomic updates
@@ -323,6 +434,36 @@ const EditEvent = () => {
         })
       );
 
+      // --- Handle Speaker Photos Upload (if any new ones were added) ---
+      const speakersForSanity = await Promise.all(
+        eventData.speakers.map(async (speaker) => {
+          if (speaker.photoFile && !speaker.photo?.asset?._ref) { // If it's a new file and not already uploaded
+            const asset = await client.assets.upload("image", speaker.photoFile);
+            return {
+              _key: speaker._key,
+              name: speaker.name,
+              profession: speaker.profession,
+              photo: {
+                _type: "image",
+                asset: {
+                  _type: "reference",
+                  _ref: asset._id,
+                },
+              },
+            };
+          } else {
+            // Existing speaker or no new photo
+            return {
+              _key: speaker._key,
+              name: speaker.name,
+              profession: speaker.profession,
+              ...(speaker.photo && { photo: speaker.photo }) // Keep existing Sanity photo reference
+            };
+          }
+        })
+      );
+
+
       // Combine existing images/resources (from Sanity) with newly uploaded ones.
       // Crucially: Filter and map only VALID existing Sanity references.
       // This prevents sending `_ref: null` or `_ref: undefined` to Sanity.
@@ -353,8 +494,6 @@ const EditEvent = () => {
       const finalResourceArray = [...existingSanityResourceRefs, ...newUploadedResourceRefs];
 
       // Prepare the main update payload for other fields
-      // NOTE: We DO NOT include 'poster' in this payload here if it was handled
-      // by its own specific patch operation within the transaction.
       const otherFieldsPayload = {
         name: eventData.name,
         startDateTime: eventData.startDateTime,
@@ -369,6 +508,8 @@ const EditEvent = () => {
         society: eventData.society,
         category: eventData.category,
         contactInfo: eventData.contactInfo,
+        winners: eventData.winners, // Include winners data
+        speakers: speakersForSanity, // Include speakers data
         images: finalImageArray, // Set the combined array of images
         resources: finalResourceArray, // Set the combined array of resources
       };
@@ -386,6 +527,8 @@ const EditEvent = () => {
       setPosterFile(null);
       setImageFiles([]);
       setResourceFiles([]);
+      setSpeakerForm({ name: "", profession: "", photoFile: null }); // Reset speaker form
+
 
       navigate("/");
     } catch (error) {
@@ -405,193 +548,241 @@ const EditEvent = () => {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center p-6">
-      <div className="bg-gray-800 p-8 rounded-lg shadow-lg w-full max-w-3xl">
-        <h1 className="text-3xl font-semibold text-center mb-6">Edit Event</h1>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Event Name */}
-          <div>
-            <label className="block text-gray-300 mb-1">Event Name</label>
-            <input
-              type="text"
-              name="name"
-              value={eventData.name}
-              onChange={handleChange}
-              className="w-full p-3 rounded bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none"
-              required
-            />
-          </div>
-
-          {/* Date & Time */}
-          <div className="grid grid-cols-2 gap-4">
+      <div className="bg-gray-800 p-8 rounded-lg shadow-lg w-full max-w-4xl"> {/* Increased max-w */}
+        <h1 className="text-4xl font-extrabold text-center mb-8 text-green-400"> {/* Larger heading */}
+          Edit Event
+        </h1>
+        <form onSubmit={handleSubmit} className="space-y-8"> {/* Increased space-y */}
+          {/* Event Details */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-gray-300 mb-1">
-                Start Date & Time
-              </label>
+              <label className="block text-gray-300 text-sm font-bold mb-2">Event Name</label>
+              <input
+                type="text"
+                name="name"
+                value={eventData.name}
+                onChange={handleChange}
+                placeholder="e.g., Tech Innovate Hackathon"
+                className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none transition duration-200 ease-in-out"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-gray-300 text-sm font-bold mb-2">Form Link</label>
+              <input
+                type="url"
+                name="formLink"
+                value={eventData.formLink}
+                onChange={handleChange}
+                placeholder="https://forms.gle/your-event-form"
+                className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none transition duration-200 ease-in-out"
+              />
+            </div>
+            <div>
+              <label className="block text-gray-300 text-sm font-bold mb-2">Start Date & Time</label>
               <input
                 type="datetime-local"
                 name="startDateTime"
                 value={eventData.startDateTime}
                 onChange={handleChange}
-                className="w-full p-3 rounded bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none"
+                className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none transition duration-200 ease-in-out"
                 required
               />
             </div>
             <div>
-              <label className="block text-gray-300 mb-1">
-                End Date & Time
-              </label>
+              <label className="block text-gray-300 text-sm font-bold mb-2">End Date & Time</label>
               <input
                 type="datetime-local"
                 name="endDateTime"
                 value={eventData.endDateTime}
                 onChange={handleChange}
-                className="w-full p-3 rounded bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none"
+                className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none transition duration-200 ease-in-out"
                 required
               />
             </div>
-          </div>
-
-          {/* Mode */}
-          <div>
-            <label className="block text-gray-300 mb-1">Event Mode</label>
-            <select
-              name="mode"
-              value={eventData.mode}
-              onChange={handleChange}
-              className="w-full p-3 rounded bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none"
-            >
-              <option value="online">Online</option>
-              <option value="offline">Offline</option>
-            </select>
-          </div>
-
-          {/* Event Overview */}
-          <div>
-            <label className="block text-gray-300 mb-1">
-              Event Overview (Before Event)
-            </label>
-            <textarea
-              name="eventOverview"
-              value={eventData.eventOverview}
-              onChange={handleChange}
-              className="w-full p-3 h-28 rounded bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none"
-            />
-          </div>
-
-          {/* Form Link */}
-          <div>
-            <label className="block text-gray-300 mb-1">Form Link</label>
-            <input
-              type="url"
-              name="formLink"
-              value={eventData.formLink}
-              onChange={handleChange}
-              className="w-full p-3 rounded bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none"
-            />
-          </div>
-
-          {/* Detailed Description */}
-          <div>
-            <label className="block text-gray-300 mb-1">
-              Detailed Description (Post Event)
-            </label>
-            <textarea
-              name="description"
-              value={eventData.description}
-              onChange={handleChange}
-              className="w-full p-3 h-28 rounded bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none"
-            />
-          </div>
-
-          {/* Team Size & Prize Pool */}
-          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-gray-300 mb-1">Team Size</label>
+              <label className="block text-gray-300 text-sm font-bold mb-2">Event Mode</label>
+              <div className="flex gap-4 p-3 rounded-md bg-gray-700 border border-gray-600">
+                <label className="inline-flex items-center">
+                  <input
+                    type="radio"
+                    name="mode"
+                    value="online"
+                    checked={eventData.mode === "online"}
+                    onChange={handleChange}
+                    className="form-radio text-green-500"
+                  />
+                  <span className="ml-2 text-gray-300">Online</span>
+                </label>
+                <label className="inline-flex items-center">
+                  <input
+                    type="radio"
+                    name="mode"
+                    value="offline"
+                    checked={eventData.mode === "offline"}
+                    onChange={handleChange}
+                    className="form-radio text-green-500"
+                  />
+                  <span className="ml-2 text-gray-300">Offline</span>
+                </label>
+              </div>
+            </div>
+            <div>
+              <label className="block text-gray-300 text-sm font-bold mb-2">Organizing Society</label>
+              <select
+                name="society"
+                value={eventData.society}
+                onChange={handleChange}
+                className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none transition duration-200 ease-in-out"
+              >
+                <option value="ieee-sb">IEEE SB</option>
+                <option value="ieee-cs">IEEE CS</option>
+                <option value="ieee-wie">IEEE WIE</option>
+                <option value="ieee-cis">IEEE CIS</option>
+                <option value="genesis">Genesis</option>
+                <option value="ieeexacm">IEEE X ACM</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-gray-300 text-sm font-bold mb-2">Event Category</label>
+              <div className="flex gap-4 p-3 rounded-md bg-gray-700 border border-gray-600">
+                <label className="inline-flex items-center">
+                  <input
+                    type="radio"
+                    name="category"
+                    value="technical"
+                    checked={eventData.category === "technical"}
+                    onChange={handleChange}
+                    className="form-radio text-green-500"
+                  />
+                  <span className="ml-2 text-gray-300">Technical</span>
+                </label>
+                <label className="inline-flex items-center">
+                  <input
+                    type="radio"
+                    name="category"
+                    value="cultural"
+                    checked={eventData.category === "cultural"}
+                    onChange={handleChange}
+                    className="form-radio text-green-500"
+                  />
+                  <span className="ml-2 text-gray-300">Cultural</span>
+                </label>
+              </div>
+            </div>
+            <div>
+              <label className="block text-gray-300 text-sm font-bold mb-2">Team Size</label>
               <input
                 type="number"
                 name="teamSize"
                 value={eventData.teamSize}
                 onChange={handleChange}
                 min="1"
-                className="w-full p-3 rounded bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none"
+                className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none transition duration-200 ease-in-out"
               />
             </div>
             <div>
-              <label className="block text-gray-300 mb-1">Prize Pool</label>
+              <label className="block text-gray-300 text-sm font-bold mb-2">Prize Pool</label>
               <input
                 type="text"
                 name="prizePool"
                 value={eventData.prizePool}
                 onChange={handleChange}
-                className="w-full p-3 rounded bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none"
+                placeholder="e.g., ₹10,000"
+                className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none transition duration-200 ease-in-out"
+              />
+            </div>
+            <div>
+              <label className="block text-gray-300 text-sm font-bold mb-2">Entry Fee</label>
+              <input
+                type="text"
+                name="entryFee"
+                value={eventData.entryFee}
+                onChange={handleChange}
+                placeholder="e.g., Free or ₹100 per team"
+                className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none transition duration-200 ease-in-out"
               />
             </div>
           </div>
 
-          {/* Entry Fee */}
+          <hr className="border-gray-700 my-8" />
+
+          {/* Descriptions */}
           <div>
-            <label className="block text-gray-300 mb-1">Entry Fee</label>
-            <input
-              type="text"
-              name="entryFee"
-              value={eventData.entryFee}
+            <label className="block text-gray-300 text-sm font-bold mb-2">Event Overview</label>
+            <textarea
+              name="eventOverview"
+              value={eventData.eventOverview}
               onChange={handleChange}
-              className="w-full p-3 rounded bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none"
+              placeholder="A brief summary of the event..."
+              className="w-full p-3 h-32 rounded-md bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none transition duration-200 ease-in-out resize-y"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-gray-300 text-sm font-bold mb-2">Detailed Description</label>
+            <textarea
+              name="description"
+              value={eventData.description}
+              onChange={handleChange}
+              placeholder="Provide a comprehensive description of the event, including rules, schedule, etc."
+              className="w-full p-3 h-48 rounded-md bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none transition duration-200 ease-in-out resize-y"
             />
           </div>
 
-          {/* Organizing Society */}
-          <div>
-            <label className="block text-gray-300 mb-1">
-              Organizing Society
-            </label>
-            <select
-              name="society"
-              value={eventData.society}
-              onChange={handleChange}
-              className="w-full p-3 rounded bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none"
-            >
-              <option value="ieee-sb">IEEE SB</option>
-              <option value="ieee-cs">IEEE CS</option>
-              <option value="ieee-wie">IEEE WIE</option>
-              <option value="ieee-cis">IEEE CIS</option>
-              <option value="genesis">Genesis</option>
-            </select>
+          <hr className="border-gray-700 my-8" />
+
+          {/* Contact Information */}
+          <h2 className="text-2xl font-semibold text-green-400 mb-4">Contact Information</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-gray-300 text-sm font-bold mb-2">Contact Person</label>
+              <input
+                type="text"
+                name="contactInfo.contactPerson"
+                value={eventData.contactInfo.contactPerson}
+                onChange={handleChange}
+                placeholder="Name of contact person"
+                className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none transition duration-200 ease-in-out"
+              />
+            </div>
+            <div>
+              <label className="block text-gray-300 text-sm font-bold mb-2">Contact Phone</label>
+              <input
+                type="text"
+                name="contactInfo.contactPhone"
+                value={eventData.contactInfo.contactPhone}
+                onChange={handleChange}
+                placeholder="Phone number"
+                className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none transition duration-200 ease-in-out"
+              />
+            </div>
           </div>
 
-          {/* Event Category */}
-          <div>
-            <label className="block text-gray-300 mb-1">Event Category</label>
-            <select
-              name="category"
-              value={eventData.category}
-              onChange={handleChange}
-              className="w-full p-3 rounded bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none"
-            >
-              <option value="technical">Technical</option>
-              <option value="cultural">Cultural</option>
-            </select>
-          </div>
+          <hr className="border-gray-700 my-8" />
+
+          {/* File Uploads */}
+          <h2 className="text-2xl font-semibold text-green-400 mb-4">Media & Resources</h2>
 
           {/* Upload Poster */}
           <div>
-            <label className="block text-gray-300 mb-1">Event Poster</label>
-            {(eventData.poster?.asset?.url || posterFile) && ( // Show preview if existing or new file
-              <div className="mb-4 flex items-center gap-4">
+            <label className="block text-gray-300 text-sm font-bold mb-2">Event Poster</label>
+            {(eventData.poster?.asset?.url || posterFile) && (
+              <div className="mb-4 flex items-center gap-4 p-3 bg-gray-700 rounded-md">
                 <img
                   src={
                     eventData.poster?.asset?.url ||
                     (posterFile ? URL.createObjectURL(posterFile) : "")
                   }
-                  alt="Event Poster"
-                  className="w-32 h-32 object-cover rounded"
+                  alt="Event Poster Preview"
+                  className="w-24 h-24 object-cover rounded-md border border-gray-600"
                 />
                 <button
                   type="button"
                   onClick={handleRemovePoster}
-                  className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded-lg text-white"
+                  className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-md text-white font-semibold transition duration-200 ease-in-out"
                 >
-                  Remove Poster
+                  Remove
                 </button>
               </div>
             )}
@@ -599,29 +790,44 @@ const EditEvent = () => {
               type="file"
               accept="image/*"
               onChange={(e) => handleFileChange(e, setPosterFile)}
-              className="w-full p-3 rounded bg-gray-700 border border-gray-600 cursor-pointer"
+              className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-green-500 file:text-white hover:file:bg-green-600 transition duration-200 ease-in-out"
             />
+            {!eventData.poster && !posterFile && (
+                <p className="text-gray-400 text-sm mt-2">Upload a captivating poster for your event.</p>
+            )}
           </div>
 
           {/* Upload Images */}
           <div>
-            <label className="block text-gray-300 mb-1">Event Images</label>
-            {(eventData.images?.length > 0 || imageFiles.length > 0) && ( // Show if existing or new files
-              <div className="flex flex-wrap gap-4 mb-4">
+            <label className="block text-gray-300 text-sm font-bold mb-2">Event Images</label>
+            {(eventData.images?.length > 0 || imageFiles.length > 0) && (
+              <div className="flex flex-wrap gap-4 mb-4 p-3 bg-gray-700 rounded-md">
                 {eventData.images.map((img, index) => (
-                  (img?.asset?.url || img?.asset?._ref) && ( // Check for url or _ref for display
-                    <div key={img._key || index} className="relative">
+                  (img?.asset?.url || img?.asset?._ref) && (
+                    <div key={img._key || index} className="relative group">
                       <img
-                        src={img.asset?.url || urlFor(img).url()} // Prefer URL from fetch, fallback to urlFor
+                        src={img.asset?.url || urlFor(img).url()}
                         alt={`Event Image ${index + 1}`}
-                        className="w-32 h-32 object-cover rounded"
+                        className="w-24 h-24 object-cover rounded-md border border-gray-600"
                       />
                       <button
                         type="button"
                         onClick={() => handleRemoveImage(index)}
-                        className="absolute top-0 right-0 bg-red-500 hover:bg-red-600 px-2 py-1 rounded-full text-white"
+                        className="absolute top-1 right-1 bg-red-600 hover:bg-red-700 text-white rounded-full p-1 text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                        title="Remove image"
                       >
-                        ×
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-4 w-4"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
                       </button>
                     </div>
                   )
@@ -633,30 +839,28 @@ const EditEvent = () => {
               accept="image/*"
               multiple
               onChange={(e) => handleMultipleFilesChange(e, setImageFiles)}
-              className="w-full p-3 rounded bg-gray-700 border border-gray-600 cursor-pointer"
+              className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-green-500 file:text-white hover:file:bg-green-600 transition duration-200 ease-in-out"
             />
+            {(eventData.images?.length === 0 && imageFiles.length === 0) && (
+                <p className="text-gray-400 text-sm mt-2">Add more images to showcase your event.</p>
+            )}
           </div>
 
           {/* Upload Resources */}
           <div>
-            <label className="block text-gray-300 mb-1">Resources</label>
-            {(eventData.resources?.length > 0 || resourceFiles.length > 0) && ( // Show if existing or new files
-              <div className="mb-4">
+            <label className="block text-gray-300 text-sm font-bold mb-2">Resources (PDFs, Docs, etc.)</label>
+            {(eventData.resources?.length > 0 || resourceFiles.length > 0) && (
+              <div className="mb-4 p-3 bg-gray-700 rounded-md">
                 {eventData.resources.map((res, index) => (
-                  (res?.asset?.url || res?.asset?._ref) && ( // Check for url or _ref for display
-                    <div key={res._key || index} className="flex items-center gap-4 mb-2">
-                      <a
-                        href={res.asset?.url || urlFor(res).url()} // Prefer URL from fetch, fallback to urlFor
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-400 hover:underline"
-                      >
-                        Resource {index + 1}
-                      </a>
+                  (res?.asset?.url || res?.asset?._ref) && (
+                    <div key={res._key || index} className="flex items-center justify-between gap-4 mb-2 bg-gray-600 p-2 rounded-md">
+                      <span className="text-blue-400 truncate pr-2">
+                        {res.asset?.url ? res.asset.url.split('/').pop().split('?')[0] : `Resource ${index + 1}`}
+                      </span> {/* Display file name from URL */}
                       <button
                         type="button"
                         onClick={() => handleRemoveResource(index)}
-                        className="bg-red-500 hover:bg-red-600 px-2 py-1 rounded-lg text-white"
+                        className="bg-red-600 hover:bg-red-700 px-3 py-1 rounded-md text-white text-sm font-semibold transition duration-200 ease-in-out"
                       >
                         Remove
                       </button>
@@ -669,47 +873,128 @@ const EditEvent = () => {
               type="file"
               multiple
               onChange={(e) => handleMultipleFilesChange(e, setResourceFiles)}
-              className="w-full p-3 rounded bg-gray-700 border border-gray-600 cursor-pointer"
+              className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-green-500 file:text-white hover:file:bg-green-600 transition duration-200 ease-in-out"
             />
+            {(eventData.resources?.length === 0 && resourceFiles.length === 0) && (
+                <p className="text-gray-400 text-sm mt-2">Upload supporting documents for your event.</p>
+            )}
           </div>
 
-          {/* Contact Person */}
-          <div>
-            <label className="block text-gray-300 mb-1">Contact Person</label>
-            <input
-              type="text"
-              name="contactInfo.contactPerson"
-              value={eventData.contactInfo.contactPerson}
-              onChange={handleChange}
-              className="w-full p-3 rounded bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none"
-            />
+          <hr className="border-gray-700 my-8" />
+
+          {/* Speakers Section */}
+          <h2 className="text-2xl font-semibold text-green-400 mb-4">Speakers</h2>
+          <div className="space-y-4">
+            {eventData.speakers.map((speaker, index) => (
+              <div key={speaker._key} className="flex items-center gap-4 bg-gray-700 p-4 rounded-md shadow-sm">
+                {speaker.photoPreviewUrl && ( // Use photoPreviewUrl for display (could be blob: or sanity URL)
+                  <img
+                    src={speaker.photoPreviewUrl}
+                    alt={speaker.name}
+                    className="w-16 h-16 object-cover rounded-full border-2 border-green-500"
+                  />
+                )}
+                <div>
+                  <p className="font-semibold text-lg">{speaker.name}</p>
+                  <p className="text-gray-400 text-sm">{speaker.profession}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveSpeaker(index)}
+                  className="ml-auto bg-red-600 hover:bg-red-700 px-3 py-1 rounded-md text-white font-semibold transition duration-200 ease-in-out"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-gray-700 p-4 rounded-md">
+              <input
+                type="text"
+                placeholder="Speaker Name"
+                value={speakerForm.name}
+                onChange={(e) => setSpeakerForm((prev) => ({ ...prev, name: e.target.value }))}
+                className="p-3 rounded-md bg-gray-600 border border-gray-500 focus:ring-2 focus:ring-green-500 outline-none"
+              />
+              <input
+                type="text"
+                placeholder="Profession"
+                value={speakerForm.profession}
+                onChange={(e) => setSpeakerForm((prev) => ({ ...prev, profession: e.target.value }))}
+                className="p-3 rounded-md bg-gray-600 border border-gray-500 focus:ring-2 focus:ring-green-500 outline-none"
+              />
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => setSpeakerForm((prev) => ({ ...prev, photoFile: e.target.files[0] }))}
+                className="p-3 rounded-md bg-gray-600 border border-gray-500 cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-gray-800 file:text-white hover:file:bg-gray-900"
+              />
+              <div className="md:col-span-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleAddSpeaker}
+                  className="bg-blue-600 hover:bg-blue-700 px-5 py-2 rounded-md text-white font-semibold transition duration-200 ease-in-out"
+                >
+                  Add Speaker
+                </button>
+              </div>
+            </div>
           </div>
 
-          {/* Contact Phone */}
-          <div>
-            <label className="block text-gray-300 mb-1">Contact Phone</label>
-            <input
-              type="text"
-              name="contactInfo.contactPhone"
-              value={eventData.contactInfo.contactPhone}
-              onChange={handleChange}
-              className="w-full p-3 rounded bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none"
-            />
+          <hr className="border-gray-700 my-8" />
+
+          {/* Winners Section */}
+          <h2 className="text-2xl font-semibold text-green-400 mb-4">Winners</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <label className="block text-gray-300 text-sm font-bold mb-2">1st Place Winner</label>
+              <input
+                type="text"
+                name="winners.firstPlace"
+                value={eventData.winners.firstPlace}
+                onChange={handleChange}
+                placeholder="e.g., Team Alpha"
+                className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none transition duration-200 ease-in-out"
+              />
+            </div>
+            <div>
+              <label className="block text-gray-300 text-sm font-bold mb-2">2nd Place Winner</label>
+              <input
+                type="text"
+                name="winners.secondPlace"
+                value={eventData.winners.secondPlace}
+                onChange={handleChange}
+                placeholder="e.g., Team Beta"
+                className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none transition duration-200 ease-in-out"
+              />
+            </div>
+            <div>
+              <label className="block text-gray-300 text-sm font-bold mb-2">3rd Place Winner</label>
+              <input
+                type="text"
+                name="winners.thirdPlace"
+                value={eventData.winners.thirdPlace}
+                onChange={handleChange}
+                placeholder="e.g., Team Gamma"
+                className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 focus:ring-2 focus:ring-green-500 outline-none transition duration-200 ease-in-out"
+              />
+            </div>
           </div>
+
+          <hr className="border-gray-700 my-8" />
 
           {/* Submit and Delete Buttons */}
-          <div className="flex justify-between">
+          <div className="flex justify-between pt-6">
             <button
               type="button"
               onClick={handleDeleteEvent}
-              className="bg-red-500 hover:bg-red-600 px-6 py-3 rounded-lg font-semibold text-white transition"
+              className="bg-red-600 hover:bg-red-700 px-8 py-3 rounded-lg font-bold text-white text-lg transition duration-300 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Delete Event
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="bg-green-500 hover:bg-green-600 px-6 py-3 rounded-lg font-semibold text-white transition"
+              className="bg-green-600 hover:bg-green-700 px-8 py-3 rounded-lg font-bold text-white text-lg transition duration-300 ease-in-out transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? "Updating..." : "Save Changes"}
             </button>
