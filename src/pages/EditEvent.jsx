@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { client } from "../sanityClient"; // Assuming sanityClient is correctly configured
 import { v4 as uuidv4 } from "uuid";
 import imageUrlBuilder from "@sanity/image-url";
+import toast from "react-hot-toast";
 
 // Configure urlFor
 const builder = imageUrlBuilder(client);
@@ -261,16 +262,25 @@ const EditEvent = () => {
   // --- Speaker Handlers ---
   const handleAddSpeaker = async () => {
     if (!speakerForm.name || !speakerForm.profession) {
-      alert("Please fill in speaker's name and profession.");
+      toast.error("Please fill in speaker's name and profession.");
       return;
     }
 
     let photoRef = null;
     let photoPreviewUrl = null;
 
-    if (speakerForm.photoFile) {
+    if (speakerForm.photoFile) { // Use photoFile
       try {
-        const asset = await client.assets.upload("image", speakerForm.photoFile);
+        const uploadPromise = client.assets.upload("image", speakerForm.photoFile);
+        toast.promise(
+          uploadPromise,
+          {
+            loading: `Uploading ${speakerForm.name}'s photo...`,
+            success: `${speakerForm.name}'s photo uploaded!`,
+            error: `Failed to upload ${speakerForm.name}'s photo.`,
+          }
+        );
+        const asset = await uploadPromise;
         photoRef = {
           _type: "image",
           asset: {
@@ -278,10 +288,9 @@ const EditEvent = () => {
             _ref: asset._id,
           },
         };
-        photoPreviewUrl = URL.createObjectURL(speakerForm.photoFile); // Create URL for local preview
       } catch (error) {
         console.error("Error uploading speaker photo:", error);
-        alert("Failed to upload speaker photo. Please try again.");
+        // Alert is replaced by toast.error
         return;
       }
     }
@@ -709,7 +718,7 @@ const EditEvent = () => {
 
           {/* Descriptions */}
           <div>
-            <label className="block text-gray-300 text-sm font-bold mb-2">Event Overview</label>
+            <label className="block text-gray-300 text-sm font-bold mb-2">Event Overview (Write before event has happened)</label>
             <textarea
               name="eventOverview"
               value={eventData.eventOverview}
@@ -720,7 +729,7 @@ const EditEvent = () => {
             />
           </div>
           <div>
-            <label className="block text-gray-300 text-sm font-bold mb-2">Detailed Description</label>
+            <label className="block text-gray-300 text-sm font-bold mb-2">Detailed Description (Write After Event has happened)</label>
             <textarea
               name="description"
               value={eventData.description}

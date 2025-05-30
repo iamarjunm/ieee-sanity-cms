@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { client } from "../sanityClient";
 import { v4 as uuidv4 } from "uuid";
+import toast from "react-hot-toast"; // Import toast and Toaster
 
 const AddEvent = () => {
   const navigate = useNavigate();
@@ -71,14 +72,23 @@ const AddEvent = () => {
   // --- MODIFIED handleAddSpeaker ---
   const handleAddSpeaker = async () => {
     if (!speakerForm.name || !speakerForm.profession) {
-      alert("Please fill in speaker's name and profession.");
+      toast.error("Please fill in speaker's name and profession."); // Toast notification
       return;
     }
 
     let photoRef = null;
     if (speakerForm.photoFile) { // Use photoFile
       try {
-        const asset = await client.assets.upload("image", speakerForm.photoFile);
+        const uploadPromise = client.assets.upload("image", speakerForm.photoFile);
+        toast.promise(
+          uploadPromise,
+          {
+            loading: `Uploading ${speakerForm.name}'s photo...`,
+            success: `${speakerForm.name}'s photo uploaded!`,
+            error: `Failed to upload ${speakerForm.name}'s photo.`,
+          }
+        );
+        const asset = await uploadPromise;
         photoRef = {
           _type: "image",
           asset: {
@@ -88,7 +98,7 @@ const AddEvent = () => {
         };
       } catch (error) {
         console.error("Error uploading speaker photo:", error);
-        alert("Failed to upload speaker photo. Please try again.");
+        // Alert is replaced by toast.error
         return;
       }
     }
@@ -106,11 +116,11 @@ const AddEvent = () => {
         },
       ],
     }));
+    toast.success(`${speakerForm.name} added as speaker!`); // Toast notification
     setSpeakerForm({ name: "", profession: "", photoFile: null }); // Reset speaker form
   };
 
   const handleRemoveSpeaker = (indexToRemove) => {
-    // Revoke the object URL when removing the speaker to prevent memory leaks
     const speakerToRemove = eventData.speakers[indexToRemove];
     if (speakerToRemove.photoPreviewUrl) {
       URL.revokeObjectURL(speakerToRemove.photoPreviewUrl);
@@ -119,34 +129,51 @@ const AddEvent = () => {
       ...prev,
       speakers: prev.speakers.filter((_, i) => i !== indexToRemove),
     }));
+    toast.success(`${speakerToRemove.name} removed from speakers.`); // Toast notification
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
 
-    // Revoke all preview URLs before submission to prevent memory leaks
     if (poster) {
-      URL.revokeObjectURL(URL.createObjectURL(poster)); // Revoke poster preview
+      URL.revokeObjectURL(URL.createObjectURL(poster));
     }
-    images.forEach(img => URL.revokeObjectURL(URL.createObjectURL(img))); // Revoke image previews
+    images.forEach(img => URL.revokeObjectURL(URL.createObjectURL(img)));
     eventData.speakers.forEach(speaker => {
       if (speaker.photoPreviewUrl) {
-        URL.revokeObjectURL(speaker.photoPreviewUrl); // Revoke speaker photo previews
+        URL.revokeObjectURL(speaker.photoPreviewUrl);
       }
     });
-
 
     try {
       let posterRef = null;
       if (poster) {
-        const posterAsset = await client.assets.upload("image", poster);
+        const posterUploadPromise = client.assets.upload("image", poster);
+        toast.promise(
+          posterUploadPromise,
+          {
+            loading: "Uploading event poster...",
+            success: "Event poster uploaded!",
+            error: "Failed to upload event poster.",
+          }
+        );
+        const posterAsset = await posterUploadPromise;
         posterRef = posterAsset._id;
       }
 
-      const uploadedImages = await Promise.all(
+      const uploadedImagesPromise = Promise.all(
         images.map((file) => client.assets.upload("image", file))
       );
+      toast.promise(
+        uploadedImagesPromise,
+        {
+          loading: "Uploading event images...",
+          success: "Event images uploaded!",
+          error: "Failed to upload event images.",
+        }
+      );
+      const uploadedImages = await uploadedImagesPromise;
       const imageRefs = uploadedImages.map((asset) => ({
         _key: uuidv4(),
         _type: "image",
@@ -156,9 +183,18 @@ const AddEvent = () => {
         },
       }));
 
-      const uploadedResources = await Promise.all(
+      const uploadedResourcesPromise = Promise.all(
         resources.map((file) => client.assets.upload("file", file))
       );
+      toast.promise(
+        uploadedResourcesPromise,
+        {
+          loading: "Uploading event resources...",
+          success: "Event resources uploaded!",
+          error: "Failed to upload event resources.",
+        }
+      );
+      const uploadedResources = await uploadedResourcesPromise;
       const resourceRefs = uploadedResources.map((asset) => ({
         _key: uuidv4(),
         _type: "file",
@@ -168,14 +204,12 @@ const AddEvent = () => {
         },
       }));
 
-      // Prepare speakers data for Sanity (only include the 'photo' reference, not photoFile or photoPreviewUrl)
       const speakersForSanity = eventData.speakers.map(speaker => ({
         _key: speaker._key,
         name: speaker.name,
         profession: speaker.profession,
-        ...(speaker.photo && { photo: speaker.photo }) // Only add photo if it exists
+        ...(speaker.photo && { photo: speaker.photo })
       }));
-
 
       const newEvent = {
         _type: "event",
@@ -183,10 +217,7 @@ const AddEvent = () => {
         ...eventData,
         images: imageRefs,
         resources: resourceRefs,
-        speakers: speakersForSanity, // Use the prepared speakers data
-        // Sanity doesn't directly support nested objects with direct value assignments for fields like winners.
-        // It expects structured data for fields defined as 'object'.
-        // We'll pass the winners object directly as it's defined as an object in schema
+        speakers: speakersForSanity,
       };
 
       if (posterRef) {
@@ -199,18 +230,27 @@ const AddEvent = () => {
         };
       }
 
-      await client.create(newEvent);
+      const createEventPromise = client.create(newEvent);
+      toast.promise(
+        createEventPromise,
+        {
+          loading: "Creating event...",
+          success: "Event created successfully!",
+          error: "Failed to create event.",
+        }
+      );
+      await createEventPromise;
       navigate("/");
     } catch (error) {
       console.error("Error adding event:", error);
-      alert("Failed to create event. Please try again.");
+      // Alert is replaced by toast.error
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center p-6">
+    <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center p-6">{/* Add Toaster component */}
       <div className="bg-gray-800 p-8 rounded-lg shadow-lg w-full max-w-4xl">
         <h1 className="text-4xl font-extrabold text-center mb-8 text-green-400">
           Create New Event
@@ -368,7 +408,7 @@ const AddEvent = () => {
             </div>
           </div>
 
-          <hr className="border-gray-700 my-8" /> {/* Added a horizontal rule */}
+          <hr className="border-gray-700 my-8" />
 
           {/* Descriptions */}
           <div>
@@ -393,7 +433,7 @@ const AddEvent = () => {
             />
           </div>
 
-          <hr className="border-gray-700 my-8" /> {/* Added a horizontal rule */}
+          <hr className="border-gray-700 my-8" />
 
           {/* Contact Information */}
           <h2 className="text-2xl font-semibold text-green-400 mb-4">Contact Information</h2>
@@ -422,7 +462,7 @@ const AddEvent = () => {
             </div>
           </div>
 
-          <hr className="border-gray-700 my-8" /> {/* Added a horizontal rule */}
+          <hr className="border-gray-700 my-8" />
 
           {/* File Uploads */}
           <h2 className="text-2xl font-semibold text-green-400 mb-4">Media & Resources</h2>
@@ -440,8 +480,9 @@ const AddEvent = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    URL.revokeObjectURL(URL.createObjectURL(poster)); // Revoke on remove
+                    URL.revokeObjectURL(URL.createObjectURL(poster));
                     setPoster(null);
+                    toast.success("Event poster removed."); // Toast notification
                   }}
                   className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-md text-white font-semibold transition duration-200 ease-in-out"
                 >
@@ -452,7 +493,10 @@ const AddEvent = () => {
             <input
               type="file"
               accept="image/*"
-              onChange={(e) => handleFileChange(e, setPoster)}
+              onChange={(e) => {
+                handleFileChange(e, setPoster);
+                if (e.target.files[0]) toast.success("Poster selected!"); // Toast notification
+              }}
               className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-green-500 file:text-white hover:file:bg-green-600 transition duration-200 ease-in-out"
             />
             {!poster && (
@@ -475,8 +519,9 @@ const AddEvent = () => {
                     <button
                       type="button"
                       onClick={() => {
-                        URL.revokeObjectURL(URL.createObjectURL(img)); // Revoke on remove
+                        URL.revokeObjectURL(URL.createObjectURL(img));
                         handleRemoveFile(setImages, index);
+                        toast.success("Image removed."); // Toast notification
                       }}
                       className="absolute top-1 right-1 bg-red-600 hover:bg-red-700 text-white rounded-full p-1 text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200"
                       title="Remove image"
@@ -502,7 +547,10 @@ const AddEvent = () => {
               type="file"
               accept="image/*"
               multiple
-              onChange={(e) => handleMultipleFilesChange(e, setImages)}
+              onChange={(e) => {
+                handleMultipleFilesChange(e, setImages);
+                if (e.target.files.length > 0) toast.success("Images selected!"); // Toast notification
+              }}
               className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-green-500 file:text-white hover:file:bg-green-600 transition duration-200 ease-in-out"
             />
             <p className="text-gray-400 text-sm mt-2">Add more images to showcase your event.</p>
@@ -520,6 +568,7 @@ const AddEvent = () => {
                       type="button"
                       onClick={() => {
                         handleRemoveFile(setResources, index);
+                        toast.success("Resource removed."); // Toast notification
                       }}
                       className="bg-red-600 hover:bg-red-700 px-3 py-1 rounded-md text-white text-sm font-semibold transition duration-200 ease-in-out"
                     >
@@ -532,20 +581,23 @@ const AddEvent = () => {
             <input
               type="file"
               multiple
-              onChange={(e) => handleMultipleFilesChange(e, setResources)}
+              onChange={(e) => {
+                handleMultipleFilesChange(e, setResources);
+                if (e.target.files.length > 0) toast.success("Resources selected!"); // Toast notification
+              }}
               className="w-full p-3 rounded-md bg-gray-700 border border-gray-600 cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-green-500 file:text-white hover:file:bg-green-600 transition duration-200 ease-in-out"
             />
             <p className="text-gray-400 text-sm mt-2">Upload supporting documents for your event.</p>
           </div>
 
-          <hr className="border-gray-700 my-8" /> {/* Added a horizontal rule */}
+          <hr className="border-gray-700 my-8" />
 
           {/* Speakers Section */}
           <h2 className="text-2xl font-semibold text-green-400 mb-4">Speakers</h2>
           <div className="space-y-4">
             {eventData.speakers.map((speaker, index) => (
               <div key={speaker._key} className="flex items-center gap-4 bg-gray-700 p-4 rounded-md shadow-sm">
-                {speaker.photoPreviewUrl && ( // Use photoPreviewUrl for display
+                {speaker.photoPreviewUrl && (
                   <img
                     src={speaker.photoPreviewUrl}
                     alt={speaker.name}
@@ -583,7 +635,7 @@ const AddEvent = () => {
               <input
                 type="file"
                 accept="image/*"
-                onChange={(e) => setSpeakerForm((prev) => ({ ...prev, photoFile: e.target.files[0] }))} // Use photoFile
+                onChange={(e) => setSpeakerForm((prev) => ({ ...prev, photoFile: e.target.files[0] }))}
                 className="p-3 rounded-md bg-gray-600 border border-gray-500 cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-gray-800 file:text-white hover:file:bg-gray-900"
               />
               <div className="md:col-span-3 flex justify-end">
@@ -598,7 +650,7 @@ const AddEvent = () => {
             </div>
           </div>
 
-          <hr className="border-gray-700 my-8" /> {/* Added a horizontal rule */}
+          <hr className="border-gray-700 my-8" />
 
           {/* Winners Section */}
           <h2 className="text-2xl font-semibold text-green-400 mb-4">Winners</h2>
@@ -638,7 +690,7 @@ const AddEvent = () => {
             </div>
           </div>
 
-          <hr className="border-gray-700 my-8" /> {/* Added a horizontal rule */}
+          <hr className="border-gray-700 my-8" />
 
           {/* Submit Button */}
           <div className="flex justify-center pt-6">
