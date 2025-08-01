@@ -17,16 +17,19 @@ import {
   FaEdit,
   FaDownload,
   FaFileCsv,
+  FaBriefcase, // New icon for Faculty
 } from "react-icons/fa";
 
 const Home = () => {
   const [events, setEvents] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
+  const [facultyMembers, setFacultyMembers] = useState([]); // NEW state for faculty
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("events");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedSociety, setSelectedSociety] = useState("");
   const [selectedYear, setSelectedYear] = useState("");
+  const [selectedDepartment, setSelectedDepartment] = useState(""); // NEW state for department filter
   const navigate = useNavigate();
 
   // Modal states
@@ -47,6 +50,11 @@ const Home = () => {
         `*[_type == "team"] | order(_updatedAt desc) {_id, name, position, society, year, _updatedAt}`
       );
       setTeamMembers(teamData);
+      
+      const facultyData = await client.fetch( // NEW query for faculty
+        `*[_type == "faculty"] | order(_updatedAt desc) {_id, name, email, department, designation, _updatedAt}`
+      );
+      setFacultyMembers(facultyData);
     } catch (err) {
       console.error("Error fetching data:", err);
       alert("Failed to fetch data. Please check your connection or Sanity setup.");
@@ -94,6 +102,10 @@ const Home = () => {
     }
     return Array.from(years).sort((a, b) => parseInt(b) - parseInt(a));
   }, [events, teamMembers, activeTab]);
+  
+  const allDepartments = useMemo(() => { // NEW memo for departments
+    return [...new Set(facultyMembers.map(f => f.department).filter(Boolean))].sort();
+  }, [facultyMembers]);
 
   const filteredEvents = useMemo(() => {
     return events.filter(event => {
@@ -120,6 +132,17 @@ const Home = () => {
     });
   }, [teamMembers, searchTerm, selectedSociety, selectedYear]);
 
+  const filteredFacultyMembers = useMemo(() => { // NEW memo for filtered faculty
+    return facultyMembers.filter(faculty => {
+      const matchesSearch = ['name', 'designation', 'department', 'email'].some(field =>
+        String(faculty[field] || '').toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      const matchesDepartment = selectedDepartment ? faculty.department === selectedDepartment : true;
+      
+      return matchesSearch && matchesDepartment;
+    });
+  }, [facultyMembers, searchTerm, selectedDepartment]);
+
   // UI handlers
   const handleLogout = async () => {
     try {
@@ -135,6 +158,7 @@ const Home = () => {
     setSearchTerm("");
     setSelectedSociety("");
     setSelectedYear("");
+    setSelectedDepartment(""); // Clear new filter state
   };
 
   const handleWebhookRefetch = () => {
@@ -160,6 +184,8 @@ const Home = () => {
       navigate(`/edit-event/${itemToEdit._id}`);
     } else if (editItemType === 'team' && itemToEdit) {
       navigate(`/edit-team/${itemToEdit._id}`);
+    } else if (editItemType === 'faculty' && itemToEdit) { // NEW edit handler for faculty
+      navigate(`/edit-faculty/${itemToEdit._id}`);
     }
     closeEditModal();
   };
@@ -171,15 +197,11 @@ const Home = () => {
       return;
     }
 
-    // Extract headers, excluding internal fields
     const headers = Object.keys(data[0]).filter(key => !['_type', '_rev'].includes(key));
-    
-    // Create CSV content
     let csvContent = headers.join(',') + '\n';
     
     data.forEach(item => {
       const row = headers.map(header => {
-        // Handle dates and nested objects
         if (header === 'startDateTime' || header === 'endDateTime' || header === '_updatedAt') {
           return `"${new Date(item[header]).toLocaleString()}"`;
         }
@@ -188,7 +210,6 @@ const Home = () => {
       csvContent += row.join(',') + '\n';
     });
 
-    // Create download link
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -223,18 +244,20 @@ const Home = () => {
       ongoingEvents,
       completedEvents,
       totalTeamMembers: teamMembers.length,
+      totalFaculty: facultyMembers.length, // NEW stat for total faculty
     };
-  }, [events, teamMembers, getEventStatus]);
+  }, [events, teamMembers, facultyMembers, getEventStatus]);
 
   const recentActivity = useMemo(() => {
     const allItems = [
       ...events.map(e => ({ ...e, type: 'event', displayTime: new Date(e._updatedAt).toLocaleString() })),
       ...teamMembers.map(tm => ({ ...tm, type: 'team', displayTime: new Date(tm._updatedAt).toLocaleString() })),
+      ...facultyMembers.map(fm => ({ ...fm, type: 'faculty', displayTime: new Date(fm._updatedAt).toLocaleString() })), // NEW for faculty
     ];
     return allItems
       .sort((a, b) => new Date(b._updatedAt) - new Date(a._updatedAt))
       .slice(0, 3);
-  }, [events, teamMembers]);
+  }, [events, teamMembers, facultyMembers]);
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-900 text-white font-sans overflow-hidden">
@@ -286,7 +309,15 @@ const Home = () => {
               {loading ? <FaSpinner className="animate-spin" /> : dashboardStats.totalTeamMembers}
             </p>
           </div>
-          <div className="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 col-span-1 md:col-span-2">
+          <div className="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700"> {/* NEW faculty stat card */}
+            <h3 className="text-xl font-bold text-purple-400 mb-3 flex items-center">
+              <FaBriefcase className="mr-2 text-purple-500"/> Total Faculty
+            </h3>
+            <p className="text-5xl font-extrabold text-white">
+              {loading ? <FaSpinner className="animate-spin" /> : dashboardStats.totalFaculty}
+            </p>
+          </div>
+          <div className="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 col-span-1 md:col-span-1 lg:col-span-1">
             <h3 className="text-xl font-bold text-blue-400 mb-3 flex items-center">
               <FaRocket className="mr-2 text-blue-500"/> Recent Activity
             </h3>
@@ -298,8 +329,8 @@ const Home = () => {
               ) : recentActivity.length > 0 ? (
                 recentActivity.map(item => (
                   <li key={item._id} className="truncate p-1 hover:bg-gray-700 rounded-md transition" title={`${item.name} (${item.type}) - ${item.displayTime}`}>
-                    <span className={`inline-block mr-2 ${item.type === 'event' ? 'text-teal-300' : 'text-purple-300'}`}>
-                      {item.type === 'event' ? <FaCalendarAlt /> : <FaUsers />}
+                    <span className={`inline-block mr-2 ${item.type === 'event' ? 'text-teal-300' : item.type === 'team' ? 'text-purple-300' : 'text-blue-300'}`}>
+                      {item.type === 'event' ? <FaCalendarAlt /> : item.type === 'team' ? <FaUsers /> : <FaBriefcase />} {/* NEW icon logic */}
                     </span>
                     <span className="font-semibold">{item.name}</span> ({item.type}) - {item.displayTime}
                     {isNewItem(item._updatedAt) && (
@@ -318,7 +349,7 @@ const Home = () => {
 
         {/* Tabs for Navigation */}
         <div className="flex justify-center border-b border-gray-700 mt-6 mb-8 sticky top-16 bg-gray-900/80 backdrop-blur-sm z-10 rounded-b-lg">
-          {["events", "team", "media"].map((tab) => (
+          {["events", "team", "faculty", "media"].map((tab) => ( // NEW "faculty" tab
             <button
               key={tab}
               className={`px-8 py-4 text-xl font-bold tracking-wide flex items-center gap-2 ${
@@ -328,15 +359,14 @@ const Home = () => {
               } transition duration-300 ease-in-out`}
               onClick={() => {
                 setActiveTab(tab);
-                setSearchTerm("");
-                setSelectedSociety("");
-                setSelectedYear("");
+                handleClearFilters();
               }}
             >
               {tab === "events" && <FaCalendarAlt />}
               {tab === "team" && <FaUsers />}
+              {tab === "faculty" && <FaBriefcase />} {/* NEW faculty icon */}
               {tab === "media" && <FaImages />}
-              {tab === "events" ? "Events" : tab === "team" ? "Team Members" : "Media Library"}
+              {tab === "events" ? "Events" : tab === "team" ? "Team" : tab === "faculty" ? "Faculty" : "Media"}
             </button>
           ))}
         </div>
@@ -354,7 +384,7 @@ const Home = () => {
                 <div className="relative flex-grow min-w-[200px]">
                   <input
                     type="text"
-                    placeholder={`Search ${activeTab === "events" ? "events (name, mode, society)" : "team members (name, position, society)"}...`}
+                    placeholder={`Search ${activeTab === "events" ? "events (name, mode, society)" : activeTab === "team" ? "team members (name, position, society)" : "faculty (name, designation, department)"}...`}
                     className="w-full p-3 pl-10 rounded-md bg-gray-800 border border-gray-700 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -371,33 +401,51 @@ const Home = () => {
                   )}
                 </div>
 
-                <select
-                  className="p-3 rounded-md bg-gray-800 border border-gray-700 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 min-w-[150px]"
-                  value={selectedSociety}
-                  onChange={(e) => setSelectedSociety(e.target.value)}
-                >
-                  <option value="">All Societies</option>
-                  {allSocieties.map((society) => (
-                    <option key={society} value={society}>
-                      {society}
-                    </option>
-                  ))}
-                </select>
+                {/* Conditional filters based on tab */}
+                {activeTab === "events" || activeTab === "team" ? (
+                  <>
+                    <select
+                      className="p-3 rounded-md bg-gray-800 border border-gray-700 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 min-w-[150px]"
+                      value={selectedSociety}
+                      onChange={(e) => setSelectedSociety(e.target.value)}
+                    >
+                      <option value="">All Societies</option>
+                      {allSocieties.map((society) => (
+                        <option key={society} value={society}>
+                          {society}
+                        </option>
+                      ))}
+                    </select>
 
-                <select
-                  className="p-3 rounded-md bg-gray-800 border border-gray-700 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 min-w-[120px]"
-                  value={selectedYear}
-                  onChange={(e) => setSelectedYear(e.target.value)}
-                >
-                  <option value="">All Years</option>
-                  {allYears.map((year) => (
-                    <option key={year} value={year}>
-                      {year}
-                    </option>
-                  ))}
-                </select>
-
-                {(searchTerm || selectedSociety || selectedYear) && (
+                    <select
+                      className="p-3 rounded-md bg-gray-800 border border-gray-700 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 min-w-[120px]"
+                      value={selectedYear}
+                      onChange={(e) => setSelectedYear(e.target.value)}
+                    >
+                      <option value="">All Years</option>
+                      {allYears.map((year) => (
+                        <option key={year} value={year}>
+                          {year}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                ) : activeTab === "faculty" && (
+                  <select // NEW department filter for faculty
+                    className="p-3 rounded-md bg-gray-800 border border-gray-700 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 min-w-[150px]"
+                    value={selectedDepartment}
+                    onChange={(e) => setSelectedDepartment(e.target.value)}
+                  >
+                    <option value="">All Departments</option>
+                    {allDepartments.map((department) => (
+                      <option key={department} value={department}>
+                        {department}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                
+                {(searchTerm || selectedSociety || selectedYear || selectedDepartment) && (
                   <button
                     onClick={handleClearFilters}
                     className="p-3 bg-gray-600 hover:bg-gray-700 text-white rounded-md transition duration-200 shadow-md flex items-center gap-2"
@@ -417,27 +465,39 @@ const Home = () => {
                   <FaSpinner /> Refresh Data
                 </button>
                 <button
-                  onClick={() => activeTab === "events" 
-                    ? exportToCSV(filteredEvents, "events") 
-                    : exportToCSV(filteredTeamMembers, "team_members")}
+                  onClick={() => {
+                    if (activeTab === "events") {
+                      exportToCSV(filteredEvents, "events");
+                    } else if (activeTab === "team") {
+                      exportToCSV(filteredTeamMembers, "team_members");
+                    } else if (activeTab === "faculty") { // NEW export logic for faculty
+                      exportToCSV(filteredFacultyMembers, "faculty_members");
+                    }
+                  }}
                   className="p-3 bg-green-600 hover:bg-green-700 text-white rounded-md transition duration-200 shadow-md flex items-center gap-2"
-                  title={`Export ${activeTab === "events" ? "Events" : "Team Members"} as CSV`}
+                  title={`Export ${activeTab === "events" ? "Events" : activeTab === "team" ? "Team Members" : "Faculty"} as CSV`}
                 >
                   <FaFileCsv /> Export CSV
                 </button>
                 <button
-                  onClick={() => activeTab === "events" 
-                    ? exportToJSON(filteredEvents, "events") 
-                    : exportToJSON(filteredTeamMembers, "team_members")}
+                  onClick={() => {
+                    if (activeTab === "events") {
+                      exportToJSON(filteredEvents, "events");
+                    } else if (activeTab === "team") {
+                      exportToJSON(filteredTeamMembers, "team_members");
+                    } else if (activeTab === "faculty") { // NEW export logic for faculty
+                      exportToJSON(filteredFacultyMembers, "faculty_members");
+                    }
+                  }}
                   className="p-3 bg-purple-600 hover:bg-purple-700 text-white rounded-md transition duration-200 shadow-md flex items-center gap-2"
-                  title={`Export ${activeTab === "events" ? "Events" : "Team Members"} as JSON`}
+                  title={`Export ${activeTab === "events" ? "Events" : activeTab === "team" ? "Team Members" : "Faculty"} as JSON`}
                 >
                   <FaDownload /> Export JSON
                 </button>
               </div>
             </div>
 
-            {/* Content Area for Events/Team */}
+            {/* Content Area for Events/Team/Faculty */}
             <div className="flex-grow flex flex-col p-6 w-full">
               {loading ? (
                 <div className="text-center text-blue-400 text-xl flex items-center justify-center p-8">
@@ -509,7 +569,7 @@ const Home = () => {
                     )}
                   </ul>
                 </div>
-              ) : (
+              ) : activeTab === "team" ? (
                 <div className="bg-gray-800 p-6 rounded-xl shadow-2xl w-full flex-grow border border-gray-700">
                   <div className="flex justify-between items-center mb-6">
                     <h2 className="text-2xl font-bold text-yellow-400 flex items-center gap-2">
@@ -561,6 +621,57 @@ const Home = () => {
                     )}
                   </ul>
                 </div>
+              ) : ( // NEW: Faculty section
+                <div className="bg-gray-800 p-6 rounded-xl shadow-2xl w-full flex-grow border border-gray-700">
+                  <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-2xl font-bold text-purple-400 flex items-center gap-2">
+                      <FaBriefcase /> Faculty Directory ({filteredFacultyMembers.length})
+                    </h2>
+                    <button
+                      onClick={() => navigate("/add-faculty")}
+                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 flex items-center gap-2"
+                    >
+                      <FaPlus /> Add New Faculty
+                    </button>
+                  </div>
+                  <ul className="divide-y divide-gray-700 max-h-[60vh] overflow-y-auto pr-2">
+                    {filteredFacultyMembers.length > 0 ? (
+                      filteredFacultyMembers.map((faculty) => (
+                        <li
+                          key={faculty._id}
+                          className="py-4 px-3 rounded-lg flex items-center justify-between transition duration-200 ease-in-out hover:bg-gray-700"
+                        >
+                          <div onClick={() => openEditModal('faculty', faculty)} className="cursor-pointer flex-grow min-w-0">
+                            <h3 className="text-xl font-semibold text-white flex items-center truncate">
+                              {faculty.name}
+                              {isNewItem(faculty._updatedAt) && (
+                                <span className="ml-2 bg-green-500 text-xs font-bold px-2 py-1 rounded-full animate-pulse">
+                                  NEW!
+                                </span>
+                              )}
+                            </h3>
+                            <p className="text-sm text-gray-400 mt-1 truncate">
+                              💼 <span className="font-medium text-yellow-300">{faculty.designation}</span> | 🏛️{" "}
+                              <span className="text-blue-300">{faculty.department}</span>
+                            </p>
+                            <p className="text-xs text-gray-500 mt-0.5">Last Updated: {new Date(faculty._updatedAt).toLocaleString()}</p>
+                          </div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openEditModal('faculty', faculty); }}
+                            className="ml-4 p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full transition duration-200 shadow-md flex-shrink-0"
+                            title="Edit Faculty"
+                          >
+                            <FaEdit />
+                          </button>
+                        </li>
+                      ))
+                    ) : (
+                      <p className="text-gray-500 text-center py-8">
+                        No faculty members found matching your criteria. Let's add some mentors! 🧑‍🏫
+                      </p>
+                    )}
+                  </ul>
+                </div>
               )}
             </div>
           </>
@@ -570,7 +681,7 @@ const Home = () => {
       {/* Single Item Edit Confirmation Modal */}
       <ConfirmationModal
         isOpen={isEditModalOpen}
-        title={`Edit ${editItemType === 'event' ? 'Event' : 'Team Member'}`}
+        title={`Edit ${editItemType === 'event' ? 'Event' : editItemType === 'team' ? 'Team Member' : 'Faculty Member'}`}
         message={`You are about to edit "${itemToEdit?.name || 'this item'}". Do you want to proceed?`}
         onConfirm={handleEditConfirm}
         onCancel={closeEditModal}

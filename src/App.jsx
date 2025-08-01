@@ -11,6 +11,8 @@ import EditEvent from "./pages/EditEvent";
 import AddTeam from "./pages/AddTeam";
 import EditTeam from "./pages/EditTeam";
 import { Toaster } from 'react-hot-toast';
+import AddFaculty from './pages/AddFaculty'; 
+import EditFaculty from './pages/EditFaculty';
 
 const ProtectedRoute = ({ element }) => {
   const [user, setUser] = useState(null);
@@ -41,6 +43,8 @@ const App = () => {
         <Route path="/edit-event/:id" element={<ProtectedRoute element={<EditEvent />} />} />
         <Route path="/add-team" element={<ProtectedRoute element={<AddTeam />} />} />
         <Route path="/edit-team/:id" element={<ProtectedRoute element={<EditTeam />} />} />
+        <Route path="/add-faculty" element={<AddFaculty />} />
+        <Route path="/edit-faculty/:id" element={<EditFaculty />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
       <Toaster position="bottom-right" />
