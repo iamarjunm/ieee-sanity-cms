@@ -367,186 +367,170 @@ const EditEvent = () => {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
+  e.preventDefault();
+  setLoading(true);
 
-    // Revoke all temporary object URLs created for previews before submission
+  try {
+    // Start a transaction
+    const transaction = client.transaction();
+
+    // Handle Poster Upload/Removal
     if (posterFile) {
-        URL.revokeObjectURL(URL.createObjectURL(posterFile));
-    }
-    imageFiles.forEach(file => URL.revokeObjectURL(URL.createObjectURL(file)));
-    resourceFiles.forEach(file => URL.revokeObjectURL(URL.createObjectURL(file)));
-    eventData.speakers.forEach(speaker => {
-      if (speaker.photoPreviewUrl && speaker.photoPreviewUrl.startsWith("blob:")) {
-        URL.revokeObjectURL(speaker.photoPreviewUrl);
-      }
-    });
-
-
-    try {
-      // Start a transaction for atomic updates
-      const transaction = client.transaction();
-
-      // --- Handle Poster Upload/Removal ---
-      if (posterFile) {
-        // A new poster file is selected: upload it
-        const posterAsset = await client.assets.upload("image", posterFile);
-        // Add a patch operation to set the new poster
-        transaction.patch(id, {
-          set: {
-            poster: {
-              _type: "image",
-              asset: {
-                _type: "reference",
-                _ref: posterAsset._id,
-              },
-            },
-          },
-        });
-      } else if (eventData.poster === null) {
-        // Poster was explicitly removed by setting eventData.poster to null
-        // Add an unset operation to the transaction
-        transaction.patch(id, {
-          unset: ["poster"],
-        });
-      }
-      // If posterFile is null and eventData.poster is not null, it means no change to existing poster.
-      // In this scenario, we don't need to add any specific patch operation for 'poster' to the transaction.
-
-      // --- Handle New Images Upload ---
-      const newUploadedImageRefs = await Promise.all(
-        imageFiles.map(async (file) => {
-          const asset = await client.assets.upload("image", file);
-          return {
-            _key: uuidv4(),
+      const posterAsset = await client.assets.upload("image", posterFile);
+      transaction.patch(id, {
+        set: {
+          poster: {
             _type: "image",
             asset: {
               _type: "reference",
-              _ref: asset._id,
+              _ref: posterAsset._id,
             },
-          };
-        })
-      );
+          },
+        },
+      });
+    } else if (eventData.poster === null) {
+      transaction.patch(id, {
+        unset: ["poster"],
+      });
+    }
 
-      // --- Handle New Resources Upload ---
-      const newUploadedResourceRefs = await Promise.all(
-        resourceFiles.map(async (file) => {
-          const asset = await client.assets.upload("file", file);
-          return {
-            _key: uuidv4(),
-            _type: "file",
-            asset: {
-              _type: "reference",
-              _ref: asset._id,
-            },
-          };
-        })
-      );
-
-      // --- Handle Speaker Photos Upload (if any new ones were added) ---
-      const speakersForSanity = await Promise.all(
-        eventData.speakers.map(async (speaker) => {
-          if (speaker.photoFile && !speaker.photo?.asset?._ref) { // If it's a new file and not already uploaded
-            const asset = await client.assets.upload("image", speaker.photoFile);
-            return {
-              _key: speaker._key,
-              name: speaker.name,
-              profession: speaker.profession,
-              photo: {
-                _type: "image",
-                asset: {
-                  _type: "reference",
-                  _ref: asset._id,
-                },
-              },
-            };
-          } else {
-            // Existing speaker or no new photo
-            return {
-              _key: speaker._key,
-              name: speaker.name,
-              profession: speaker.profession,
-              ...(speaker.photo && { photo: speaker.photo }) // Keep existing Sanity photo reference
-            };
-          }
-        })
-      );
-
-
-      // Combine existing images/resources (from Sanity) with newly uploaded ones.
-      // Crucially: Filter and map only VALID existing Sanity references.
-      // This prevents sending `_ref: null` or `_ref: undefined` to Sanity.
-      const existingSanityImageRefs = (eventData.images || [])
-        .filter((img) => img.asset && typeof img.asset._ref === "string")
-        .map((img) => ({
-          _key: img._key, // Keep existing _key
+    // Handle New Images Upload
+    const newUploadedImageRefs = await Promise.all(
+      imageFiles.map(async (file) => {
+        const asset = await client.assets.upload("image", file);
+        return {
+          _key: uuidv4(),
           _type: "image",
           asset: {
             _type: "reference",
-            _ref: img.asset._ref,
+            _ref: asset._id,
           },
-        }));
+        };
+      })
+    );
 
-      const finalImageArray = [...existingSanityImageRefs, ...newUploadedImageRefs];
-
-      const existingSanityResourceRefs = (eventData.resources || [])
-        .filter((res) => res.asset && typeof res.asset._ref === "string")
-        .map((res) => ({
-          _key: res._key, // Keep existing _key
+    // Handle New Resources Upload
+    const newUploadedResourceRefs = await Promise.all(
+      resourceFiles.map(async (file) => {
+        const asset = await client.assets.upload("file", file);
+        return {
+          _key: uuidv4(),
           _type: "file",
           asset: {
             _type: "reference",
-            _ref: res.asset._ref,
+            _ref: asset._id,
           },
-        }));
+        };
+      })
+    );
 
-      const finalResourceArray = [...existingSanityResourceRefs, ...newUploadedResourceRefs];
-
-      // Prepare the main update payload for other fields
-      const otherFieldsPayload = {
-        name: eventData.name,
-        startDateTime: eventData.startDateTime,
-        endDateTime: eventData.endDateTime,
-        mode: eventData.mode,
-        eventOverview: eventData.eventOverview,
-        formLink: eventData.formLink,
-        description: eventData.description,
-        prizePool: eventData.prizePool,
-        teamSize: eventData.teamSize,
-        entryFee: eventData.entryFee,
-        society: eventData.society,
-        category: eventData.category,
-        contactInfo: eventData.contactInfo,
-        winners: eventData.winners, // Include winners data
-        speakers: speakersForSanity, // Include speakers data
-        images: finalImageArray, // Set the combined array of images
-        resources: finalResourceArray, // Set the combined array of resources
+const speakersForSanity = await Promise.all(
+  eventData.speakers.map(async (speaker) => {
+    if (speaker.photoFile && !speaker.photo?.asset?._ref) {
+      // Upload new photo
+      const asset = await client.assets.upload("image", speaker.photoFile);
+      return {
+        _key: speaker._key,
+        name: speaker.name,
+        profession: speaker.profession,
+        photo: {
+          _type: "image",
+          asset: {
+            _type: "reference",
+            _ref: asset._id,
+          },
+        },
       };
-
-      // Add the main payload update to the transaction.
-      // This will set/overwrite all other fields on the document.
-      transaction.patch(id, {
-        set: otherFieldsPayload,
-      });
-
-      // Commit the entire transaction
-      await transaction.commit();
-
-      // Reset file states after successful submission to avoid re-uploading on subsequent submits
-      setPosterFile(null);
-      setImageFiles([]);
-      setResourceFiles([]);
-      setSpeakerForm({ name: "", profession: "", photoFile: null }); // Reset speaker form
-
-
-      navigate("/");
-    } catch (error) {
-      console.error("Error updating event:", error);
-      alert("Failed to save changes. Please check the console for details.");
-    } finally {
-      setLoading(false);
+    } else {
+      // Existing speaker or no new photo - only include valid Sanity reference
+      const photoRef = speaker.photo?.asset?._ref ? {
+        _type: "image",
+        asset: {
+          _type: "reference",
+          _ref: speaker.photo.asset._ref,
+        },
+      } : undefined;
+      
+      return {
+        _key: speaker._key,
+        name: speaker.name,
+        profession: speaker.profession,
+        ...(photoRef && { photo: photoRef })
+      };
     }
-  };
+  })
+);
+
+    // Filter and map only valid Sanity references for images and resources
+    const existingSanityImageRefs = (eventData.images || [])
+      .filter((img) => img.asset && typeof img.asset._ref === "string")
+      .map((img) => ({
+        _key: img._key,
+        _type: "image",
+        asset: {
+          _type: "reference",
+          _ref: img.asset._ref,
+        },
+      }));
+
+    const finalImageArray = [...existingSanityImageRefs, ...newUploadedImageRefs];
+
+    const existingSanityResourceRefs = (eventData.resources || [])
+      .filter((res) => res.asset && typeof res.asset._ref === "string")
+      .map((res) => ({
+        _key: res._key,
+        _type: "file",
+        asset: {
+          _type: "reference",
+          _ref: res.asset._ref,
+        },
+      }));
+
+    const finalResourceArray = [...existingSanityResourceRefs, ...newUploadedResourceRefs];
+
+    // Prepare the main update payload
+    const otherFieldsPayload = {
+      name: eventData.name,
+      startDateTime: eventData.startDateTime,
+      endDateTime: eventData.endDateTime,
+      mode: eventData.mode,
+      eventOverview: eventData.eventOverview,
+      formLink: eventData.formLink,
+      description: eventData.description,
+      prizePool: eventData.prizePool,
+      teamSize: eventData.teamSize,
+      entryFee: eventData.entryFee,
+      society: eventData.society,
+      category: eventData.category,
+      contactInfo: eventData.contactInfo,
+      winners: eventData.winners,
+      speakers: speakersForSanity,
+      images: finalImageArray,
+      resources: finalResourceArray,
+    };
+
+    // Add the main payload update to the transaction
+    transaction.patch(id, {
+      set: otherFieldsPayload,
+    });
+
+    // Commit the entire transaction
+    await transaction.commit();
+
+    // Reset file states
+    setPosterFile(null);
+    setImageFiles([]);
+    setResourceFiles([]);
+    setSpeakerForm({ name: "", profession: "", photoFile: null });
+
+    navigate("/");
+  } catch (error) {
+    console.error("Error updating event:", error);
+    alert("Failed to save changes. Please check the console for details.");
+  } finally {
+    setLoading(false);
+  }
+};
 
   if (loading)
     return (
