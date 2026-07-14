@@ -48,7 +48,7 @@ const AddTeam = () => {
   const handleSocialMediaChange = (index, e) => {
     const { name, value } = e.target;
     const updatedSocialMedia = formData.socialMedia.map((item, i) =>
-      i === index ? { ...item, [name]: value } : item
+      i === index ? { ...item, [name]: value } : item,
     );
     setFormData({ ...formData, socialMedia: updatedSocialMedia });
   };
@@ -120,7 +120,10 @@ const AddTeam = () => {
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Name */}
           <div>
-            <label htmlFor="name" className="block text-gray-300 text-sm font-medium mb-1">
+            <label
+              htmlFor="name"
+              className="block text-gray-300 text-sm font-medium mb-1"
+            >
               Name
             </label>
             <input
@@ -137,7 +140,10 @@ const AddTeam = () => {
 
           {/* Photo Upload */}
           <div>
-            <label htmlFor="photo" className="block text-gray-300 text-sm font-medium mb-1">
+            <label
+              htmlFor="photo"
+              className="block text-gray-300 text-sm font-medium mb-1"
+            >
               Photo
             </label>
             <div className="flex items-center gap-4">
@@ -159,7 +165,10 @@ const AddTeam = () => {
 
           {/* Committee */}
           <div>
-            <label htmlFor="committee" className="block text-gray-300 text-sm font-medium mb-1">
+            <label
+              htmlFor="committee"
+              className="block text-gray-300 text-sm font-medium mb-1"
+            >
               Committee
             </label>
             <select
@@ -179,7 +188,10 @@ const AddTeam = () => {
 
           {/* Position */}
           <div>
-            <label htmlFor="position" className="block text-gray-300 text-sm font-medium mb-1">
+            <label
+              htmlFor="position"
+              className="block text-gray-300 text-sm font-medium mb-1"
+            >
               Position
             </label>
             <input
@@ -195,7 +207,10 @@ const AddTeam = () => {
 
           {/* Society */}
           <div>
-            <label htmlFor="society" className="block text-gray-300 text-sm font-medium mb-1">
+            <label
+              htmlFor="society"
+              className="block text-gray-300 text-sm font-medium mb-1"
+            >
               Society
             </label>
             <select
@@ -215,7 +230,10 @@ const AddTeam = () => {
 
           {/* Year */}
           <div>
-            <label htmlFor="year" className="block text-gray-300 text-sm font-medium mb-1">
+            <label
+              htmlFor="year"
+              className="block text-gray-300 text-sm font-medium mb-1"
+            >
               Year
             </label>
             <select
@@ -230,12 +248,16 @@ const AddTeam = () => {
               <option value="2023">2023</option>
               <option value="2024">2024</option>
               <option value="2025">2025</option>
+              <option value="2026">2026</option>
             </select>
           </div>
 
           {/* Is Website Team */}
           <div>
-            <label htmlFor="isWebsiteTeam" className="block text-gray-300 text-sm font-medium mb-1">
+            <label
+              htmlFor="isWebsiteTeam"
+              className="block text-gray-300 text-sm font-medium mb-1"
+            >
               Is this member part of the Website Team?
             </label>
             <select
@@ -252,7 +274,9 @@ const AddTeam = () => {
 
           {/* Social Media */}
           <div>
-            <label className="block text-gray-300 text-sm font-medium mb-2">Social Media Profiles</label>
+            <label className="block text-gray-300 text-sm font-medium mb-2">
+              Social Media Profiles
+            </label>
             {formData.socialMedia.map((item, index) => (
               <div key={item._key} className="flex gap-4 mb-4 items-center">
                 <select
